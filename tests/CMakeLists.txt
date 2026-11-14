@@ -1,0 +1,68 @@
+add_executable(test_native test_native.cpp)
+target_link_libraries(test_native PRIVATE deeprbf_core)
+if(_HAVE_SCALFMM)
+  target_compile_definitions(test_native PRIVATE DEEPRBF_TEST_REAL_SCALFMM=1)
+endif()
+add_test(NAME native_regressions COMMAND test_native)
+if(DEEPRBF_BUILD_PYTHON)
+add_test(NAME numerical_regressions COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_regression.py")
+set_tests_properties(numerical_regressions PROPERTIES ENVIRONMENT "PYTHONPATH=${CMAKE_BINARY_DIR}/module;OMP_NUM_THREADS=4")
+
+
+
+endif()
+
+add_executable(test_rbf_exact test_rbf_exact.cpp)
+target_link_libraries(test_rbf_exact PRIVATE deeprbf_core)
+add_test(NAME rbf_interpolation_exactitude COMMAND test_rbf_exact)
+
+add_executable(test_native_kriging test_native_kriging.cpp)
+target_link_libraries(test_native_kriging PRIVATE deeprbf_core)
+add_test(NAME native_ordinary_kriging_exactitude COMMAND test_native_kriging)
+
+add_executable(test_native_covariance_anisotropy test_native_covariance_anisotropy.cpp)
+target_link_libraries(test_native_covariance_anisotropy PRIVATE deeprbf_core)
+add_test(NAME native_covariance_anisotropy COMMAND test_native_covariance_anisotropy)
+
+
+
+
+
+
+
+add_executable(test_native_spatial_validation test_native_spatial_validation.cpp)
+target_include_directories(test_native_spatial_validation PRIVATE ${PROJECT_SOURCE_DIR}/include)
+add_test(NAME native_spatial_validation_no_leakage COMMAND test_native_spatial_validation)
+
+add_executable(test_grouped_spatial_validation test_grouped_spatial_validation.cpp)
+target_include_directories(test_grouped_spatial_validation PRIVATE ${PROJECT_SOURCE_DIR}/include)
+add_test(NAME grouped_drillhole_spatial_validation COMMAND test_grouped_spatial_validation)
+
+
+
+add_executable(test_directional_variogram test_directional_variogram.cpp)
+target_include_directories(test_directional_variogram PRIVATE ${PROJECT_SOURCE_DIR}/include)
+add_test(NAME native_directional_variogram COMMAND test_directional_variogram)
+add_executable(test_cross_variogram test_cross_variogram.cpp)
+target_include_directories(test_cross_variogram PRIVATE ${PROJECT_SOURCE_DIR}/include)
+add_test(NAME native_directional_cross_variogram COMMAND test_cross_variogram)
+
+add_executable(test_lmc_psd test_lmc_psd.cpp)
+target_include_directories(test_lmc_psd PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(test_lmc_psd PRIVATE Eigen3::Eigen)
+add_test(NAME native_lmc_psd_validation COMMAND test_lmc_psd)
+
+add_executable(test_lmc_covariance_fit test_lmc_covariance_fit.cpp)
+target_link_libraries(test_lmc_covariance_fit PRIVATE deeprbf_core)
+add_test(NAME native_lmc_covariance_recovery COMMAND test_lmc_covariance_fit)
+add_executable(test_lmc_covariance_contract test_lmc_covariance_contract.cpp)
+target_link_libraries(test_lmc_covariance_contract PRIVATE deeprbf_core)
+add_test(NAME native_lmc_covariance_contract COMMAND test_lmc_covariance_contract)
+
+add_executable(test_continuous_cokriging_anisotropy test_continuous_cokriging_anisotropy.cpp)
+target_link_libraries(test_continuous_cokriging_anisotropy PRIVATE deeprbf_core)
+add_test(NAME continuous_cokriging_anisotropy COMMAND test_continuous_cokriging_anisotropy)
+
+add_executable(test_lmc_joint_fit test_lmc_joint_fit.cpp)
+target_link_libraries(test_lmc_joint_fit PRIVATE deeprbf_core)
+add_test(NAME native_lmc_joint_fit COMMAND test_lmc_joint_fit)

@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68", "wheel", "pybind11>=2.11", "numpy"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepfusion-deeprbf"
+version = "3.4.0"
+description = "DeepRBF native engine and lithological simulation workflows"
+requires-python = ">=3.11,<3.12"
+dependencies = ["numpy", "pandas", "scipy"]
+
+[project.optional-dependencies]
+workflow = ["scikit-image"]

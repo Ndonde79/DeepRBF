@@ -1,0 +1,7 @@
+include CMakeLists.txt
+recursive-include include *.hpp *.h
+recursive-include src *.cpp
+recursive-include tests *.cpp *.py *.txt *.csv
+recursive-include python *.py
+
+include LICENSE README.md CHANGELOG.md deeprbf_core.py

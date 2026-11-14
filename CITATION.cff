@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+title: "DeepRBF: implicit geological modelling and geostatistics with radial basis functions"
+abstract: >-
+  DeepRBF is a C++ engine with a Python interface for implicit geological modelling with radial basis
+  functions (RBF) and for the geostatistics used inside the resulting shapes: exact and sparse RBF solvers,
+  contact-based ore shells, a drillhole-to-grade-shell workflow, GSLIB-convention kriging and sequential
+  Gaussian and indicator simulation, multiple-point simulation and sparse variational Gaussian processes.
+authors:
+  - family-names: Ndonde
+    given-names: Ramadhani W.
+    affiliation: "DeepFusion Geoscience Limited, Dar es Salaam, Tanzania"
+version: 3.4.0
+date-released: 2026-11-15
+license: BSD-3-Clause
+repository-code: "https://github.com/Ndonde79/DeepRBF"
+keywords:
+  - implicit modelling
+  - radial basis functions
+  - geostatistics
+  - kriging
+  - mineral resource estimation
+  - grade shells
