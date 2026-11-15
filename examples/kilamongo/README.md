@@ -8,7 +8,7 @@ Public example dataset for the DeepRBF grade-shell workflow (`deeprbf.workflow.s
 | `kilamongo_indicator.json` | Indicator RBF at 0.3 g/t (spherical kernel, trend dip 18° towards 068°) |
 | `kilamongo_signed_distance.json` | Signed-distance (BOUNDSIM) shell at the same cut-off |
 | `kilamongo_contacts.json` | Contacts-with-normals shell at the same cut-off |
-| `Au_Ind_kila_0.3.str`, `Au_Ind_kila_0.3.dtm` | Reference 0.3 g/t indicator shell (Surpac), built independently with Leapfrog, used for comparison |
+| `Au_Ind_kila_0.3.str`, `Au_Ind_kila_0.3.dtm` | Reference 0.3 g/t indicator shell (Surpac), built independently in commercial implicit-modelling software, used for comparison |
 
 Run from this folder (Python 3.11 with DeepRBF and scikit-image installed):
 

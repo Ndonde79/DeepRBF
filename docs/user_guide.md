@@ -147,7 +147,8 @@ The grade that separates ore from waste: a composite is ore when its grade is **
 
 ## `trend`: the anisotropy
 
-The trend follows the Leapfrog convention, so you can copy it from a Leapfrog interpolant:
+The trend uses the dip, dip azimuth and pitch convention of common implicit-modelling software, so you can copy it
+from an existing interpolant:
 
 - `dip` and `dip_azimuth` define the plane of greatest continuity.
 - `pitch` is the direction of the maximum axis within that plane, measured from the strike line (dip azimuth − 90°)
@@ -175,8 +176,9 @@ two shape parameters (alpha and power) explicitly.
 smoothing (regularisation) of the interpolant. With the Kilamongo values, 0.309 / (12 − 0.309) = 0.026. A larger
 nugget gives a smoother shell that honours individual composites less closely.
 
-**range_factor.** With the spherical kernel, `range_factor: 1.04` reproduces the shape of a Leapfrog spheroidal
-interpolant with alpha 9 (a close fit, not an exact match). Use 1.0 when you are not trying to match Leapfrog.
+**range_factor.** With the spherical kernel, `range_factor: 1.04` reproduces the shape of the spheroidal
+interpolant with alpha 9 used in commercial software (a close fit, not an exact match). Use 1.0 when you are not
+trying to match such an interpolant.
 
 **Drift.** Use `none` for the indicator method, `constant` for signed distance and `linear` for contacts. The
 *Choosing a method* section explains why.
@@ -193,8 +195,9 @@ interpolant with alpha 9 (a close fit, not an exact match). Use 1.0 when you are
 | `topography` | surface file to clip the shell against, or `null` | `null` |
 
 **iso.** For the indicator method the field runs from about 0 (waste) to 1 (ore); 0.5 is the neutral boundary.
-A lower iso gives a larger, more inclusive shell. Kilamongo uses 0.25, the value used for the reference Leapfrog
-shell. For signed distance and contacts the boundary is always at 0 and `iso` is ignored.
+A lower iso gives a larger, more inclusive shell. Kilamongo uses 0.25.
+An iso calibrated so that the shell volume matches the declustered share of composites at or above the cut-off
+usually recovers the geometry best (benchmark B5). For signed distance and contacts the boundary is always at 0 and `iso` is ignored.
 
 **spacing.** 2 m suits a deposit drilled at 20–40 m spacing. Halving the spacing multiplies the grid size by eight;
 run at a coarser spacing while you experiment.
@@ -207,7 +210,7 @@ CSV of points with X/Y/Z columns (also accepted: `XP/YP/ZP`, `EAST/NORTH/RL`, `E
 
 | Key | Meaning |
 |---|---|
-| `reference` | an existing wireframe (Surpac `.dtm` or `.str`, or DXF) to compare against, for example a Leapfrog shell |
+| `reference` | an existing wireframe (Surpac `.dtm` or `.str`, or DXF) to compare against, for example a shell from other software |
 | `folds` | number of withheld-hole folds; 0 or 1 switches the test off |
 | `seed` | random seed for assigning holes to folds |
 
@@ -291,7 +294,7 @@ The three example settings files give these results at 0.3 g/t (Linux and Window
 | Share of the reference volume covered | 90% | 27% | 62% |
 | Run time (two-core test machine) | 54 s | 48 s | 16 s |
 
-The reference Leapfrog shell is 2.67 Mm³. The three methods answer different questions: the indicator shell is
+The reference shell is 2.67 Mm³. The three methods answer different questions: the indicator shell is
 inclusive, the signed-distance shell is tight around the ore composites, and the contacts shell follows the drilled
 contacts. Compare them on section against the geology before choosing.
 
@@ -319,7 +322,7 @@ outputs: out/Kilamongo_Au_0.3_indicator.str, ...indicator.dtm, ...indicator.dxf
 | File | Content |
 |---|---|
 | `<name>.str`, `<name>.dtm` | the shell as a Surpac string file and DTM |
-| `<name>.dxf` | the same shell as a DXF mesh (Leapfrog, Datamine, Micromine, Deswik) |
+| `<name>.dxf` | the same shell as a DXF mesh (most mining software reads it) |
 | `<name>_composites.csv` | composites with coordinates and the ore indicator |
 | `<name>_field.npy` | the interpolated field on the contouring grid (NumPy array) |
 | `<name>_report.json` | settings, data summary, model, wireframe and honouring statistics |
@@ -422,16 +425,16 @@ print("SIS", real.shape, f"P(ore) mean {(real == 1).mean():.2f}")
 The variogram here is for illustration only. Model your own variogram from the composites inside the domain
 before estimating.
 
-## Converting a Leapfrog trend to GSLIB angles
+## Converting a workflow trend to GSLIB angles
 
-The shell workflow uses Leapfrog angles; the kriging functions use GSLIB angles: `azimuth` of the major axis
+The shell workflow uses dip, dip azimuth and pitch; the kriging functions use GSLIB angles: `azimuth` of the major axis
 (clockwise from north), `dip` of the major axis (positive downward in DeepRBF) and `rake` (rotation about the major
 axis). The ranges are `range_major`, `range_minor` (the horizontal axis at right angles to the major) and
 `range_vertical`.
 
 For the common case of `pitch: 90` (maximum axis down-dip), the conversion is direct:
 
-| Leapfrog | GSLIB (DeepRBF) |
+| Workflow trend | GSLIB (DeepRBF) |
 |---|---|
 | dip 18, dip azimuth 068, pitch 90 | azimuth 68, dip 18, rake 0 |
 | ranges max, int, min = 52.6, 43.9, 11.7 | major 52.6, minor 43.9, vertical 11.7 |

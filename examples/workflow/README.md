@@ -5,12 +5,12 @@
 
 Inputs: collar, survey and interval CSVs (column names mapped in `drillholes.columns`), one JSON settings file,
 optional topography (DXF, Surpac .str/.dtm, CSV points; Datamine .dm through `surfaces.register_reader`) and an
-optional reference wireframe (e.g. a Leapfrog export) for comparison. Outputs in `output_dir`: `<name>.str/.dtm`
+optional reference wireframe (e.g. an export from other software) for comparison. Outputs in `output_dir`: `<name>.str/.dtm`
 (Surpac), `<name>.dxf`, `<name>_composites.csv`, `<name>_field.npy`, `<name>_report.json`.
 
-Settings follow the Leapfrog indicator RBF dialog: trend dip / dip azimuth / pitch with maximum, intermediate and
+Settings follow the indicator RBF settings of common implicit-modelling software: trend dip / dip azimuth / pitch with maximum, intermediate and
 minimum ranges; interpolant kernel, sill, nugget and drift; iso value, resolution (`spacing`), small-body filter
-(`min_volume`). `range_factor` 1.04 with the spherical kernel follows a Leapfrog spheroidal alpha 9 curve.
+(`min_volume`). `range_factor` 1.04 with the spherical kernel follows a spheroidal alpha 9 curve.
 Withheld-hole folds (`validation.folds`) score the trend and settings on unseen holes; the wireframe uses all holes.
 Requires scikit-image for contouring (`pip install deepfusion-deeprbf[workflow]`).
 

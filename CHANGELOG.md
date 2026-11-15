@@ -58,7 +58,7 @@ First public source release. Geostatistics with GSLIB conventions, and a faster 
 Covariance kernels, drift choice, a sparse solver for compact kernels, and a reusable grade-shell workflow.
 
 - Kernels: `spherical` and `exponential` (unit sill, epsilon = range) and `gen_cauchy[:alpha:power]`, a long-tailed
-  covariance at 96 % of the sill at the range (the Leapfrog spheroidal convention; default alpha 9, power 1.667,
+  covariance at 96 % of the sill at the range (the spheroidal convention of common commercial software; default alpha 9, power 1.667,
   fitted to a spheroidal alpha 9 curve). `deeprbf_recovered.kernel_value(kernel, r, epsilon)` evaluates any kernel.
 - Drift: `NativeExactRBFImplicitModel.set_drift("none" | "constant" | "linear")`, default `linear` (unchanged).
   `none` is accepted only for positive-definite kernels, `constant` not for cubic or thin-plate.
@@ -71,8 +71,8 @@ Covariance kernels, drift choice, a sparse solver for compact kernels, and a reu
   removed on the grid before contouring -> Surpac .str/.dtm and DXF -> JSON report (honouring of the data, volumes,
   reference comparison, withheld-hole folds, conservative/expected/aggressive shells). Run
   `python -m deeprbf.workflow.shell settings.json`; examples in `examples/workflow`. Needs scikit-image.
-- Kilamongo South 0.3 g/t (public data): with the Leapfrog settings the shell honours the 1 m composites with F1 0.84
-  (Leapfrog 0.82) and shares 90 % of the Leapfrog shell volume.
+- Kilamongo South 0.3 g/t (public data): with the settings of the commercial reference shell the shell honours the 1 m composites with F1 0.84
+  (reference 0.82) and shares 90 % of the reference shell volume.
 - Tests: 62 new (kernels and drift, sparse solver, sparse with drift, workflow).
 
 ## 3.3.2 — 13 November 2026

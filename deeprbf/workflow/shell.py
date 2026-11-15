@@ -1,7 +1,7 @@
 # DeepRBF - Copyright (c) 2026 DeepFusion Geoscience Limited. Licensed under the BSD 3-Clause License (see LICENSE).
 """Indicator grade-shell workflow: drillhole CSVs + one JSON settings file -> DeepRBF indicator RBF -> closed wireframe
 (Surpac .str/.dtm and DXF) clipped to bounds and topography -> report (composites, honouring of the data, volumes,
-optional withheld-hole folds, optional comparison with a reference wireframe such as a Leapfrog shell).
+optional withheld-hole folds, optional comparison with a reference wireframe such as a shell from other software).
 
     python -m deeprbf.workflow.shell settings.json
 
@@ -19,10 +19,10 @@ Settings (JSON; paths relative to the settings file):
   "validation": {"folds": 0, "reference": "Au_Ind_kila_0.3.dtm"},
   "output_dir": "out"
 }
-Notes: ranges are maximum, intermediate, minimum (Leapfrog convention; pitch 90 = maximum down-dip). The nugget is
+Notes: ranges are maximum, intermediate, minimum (common implicit-modelling convention; pitch 90 = maximum down-dip). The nugget is
 used as regularization nugget/(sill - nugget). Kernel "spherical" (compact; sparse solver for large data) or
 "gen_cauchy[:alpha:power]" (long tail, global; slower for large data) or "exponential". "range_factor" scales the
-ranges for the kernel: 1.04 makes a spherical kernel follow a Leapfrog spheroidal alpha 9 curve (fitted, not exact)."""
+ranges for the kernel: 1.04 makes a spherical kernel follow a spheroidal alpha 9 curve (fitted, not exact)."""
 from __future__ import annotations
 import json, os, sys, time, numpy as np, pandas as pd
 from . import drillholes as dh, mesh as ms, surfaces as sf, distance as dist, contacts as ct

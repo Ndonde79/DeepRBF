@@ -23,8 +23,8 @@ inline double euclidean_dist(const Point3& a, const Point3& b) {
 
 // Generalised Cauchy covariance (unit sill), the long-tailed "spheroidal"-style kernel:
 //   C(h) = (1 + (h/b)^p)^(-a/p),   b = epsilon / (0.04^(-p/a) - 1)^(1/p)
-// so epsilon is the range at which C = 0.04 (variogram at 96% of sill, the Leapfrog spheroidal convention).
-// Defaults a = 9, p = 1.667 are a fit to the Leapfrog spheroidal alpha = 9 curve. Positive definite in 3D for
+// so epsilon is the range at which C = 0.04 (variogram at 96% of sill, the spheroidal convention of commercial software).
+// Defaults a = 9, p = 1.667 are a fit to the spheroidal alpha = 9 curve. Positive definite in 3D for
 // a > 0 and 0 < p <= 2. Shape is chosen through the kernel string: "gen_cauchy" (defaults) or
 // "gen_cauchy:<alpha>:<power>", e.g. "gen_cauchy:9:1.667". The string is parsed once (resolve_kernel); inner
 // loops use ResolvedKernel and never compare strings.

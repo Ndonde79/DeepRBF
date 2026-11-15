@@ -70,9 +70,9 @@ $r$ is distance, $\varepsilon$ the shape parameter (`epsilon`) and $q = r / \var
 | `gen_cauchy[:a:p]` | $(1 + (r/b)^p)^{-a/p}$ | PD for $a > 0$, $0 < p \le 2$ | none |
 
 For the generalised Cauchy kernel, $b = \varepsilon / (0.04^{-p/a} - 1)^{1/p}$, so $\varepsilon$ is the distance
-at which the covariance falls to 0.04 (the variogram reaches 96% of the sill, the Leapfrog convention for the
+at which the covariance falls to 0.04 (the variogram reaches 96% of the sill, the convention of common commercial software for the
 spheroidal range). The defaults $a = 9$, $p = 1.667$ (`gen_cauchy` or `gen_cauchy:9:1.667`) are a fit to the
-Leapfrog spheroidal curve with alpha 9. The shape can also be set with `set_kernel_shape(alpha, power)` before
+spheroidal curve with alpha 9 used in commercial software. The shape can also be set with `set_kernel_shape(alpha, power)` before
 fitting.
 
 `set_drift` enforces the minimum drift: `none` with a CPD kernel raises
@@ -139,7 +139,7 @@ The release wheel does not include ScalFMM or oneMKL.
 
 # Anisotropy
 
-## Leapfrog convention (grade-shell workflow)
+## Dip, dip azimuth and pitch (grade-shell workflow)
 
 `deeprbf.workflow.anisotropy.Frame(dip, dip_azimuth, pitch, ranges, origin)` maps world coordinates to a model
 frame in which each range becomes 1:
@@ -160,7 +160,7 @@ axis, `rake` about the major axis. In DeepRBF a **positive dip plunges the major
 `gslib_rotation` returns the row-major 3×3 matrix mapping a lag to range-scaled (major, minor, vertical)
 coordinates; with unit ranges its first row is the major-axis direction (east, north, up).
 
-Checked equivalence: Leapfrog dip 18, dip azimuth 068, pitch 90 equals GSLIB azimuth 68, dip 18, rake 0. The
+Checked equivalence: workflow dip 18, dip azimuth 068, pitch 90 equals GSLIB azimuth 68, dip 18, rake 0. The
 GSLIB vertical axis is then normal to the plane and the minor axis lies along strike.
 
 # Grade-shell workflow
@@ -214,11 +214,11 @@ Paths are relative to the settings file. Defaults apply when a key is absent.
 | `drillholes.composite_length` | m | 1.0 | |
 | `drillholes.min_fraction` | 0–1 | 0.5 | |
 | `cutoff` | grade | required | ore = value ≥ cutoff |
-| `trend.dip`, `.dip_azimuth` | degrees | required | Leapfrog convention |
+| `trend.dip`, `.dip_azimuth` | degrees | required | dip, dip azimuth and pitch convention |
 | `trend.pitch` | degrees | 90 | |
 | `trend.ranges` | [m, m, m] | required | maximum, intermediate, minimum |
 | `interpolant.kernel` | string | `spherical` | any kernel string |
-| `interpolant.range_factor` | number | 1.0 | 1.04 ≈ Leapfrog spheroidal alpha 9 with `spherical` |
+| `interpolant.range_factor` | number | 1.0 | 1.04 ≈ spheroidal alpha 9 with `spherical` |
 | `interpolant.sill` | number | 1.0 | |
 | `interpolant.nugget` | number | 0.0 | 0 ≤ nugget < sill; regularisation = nugget/(sill − nugget) |
 | `interpolant.drift` | string | `none` | `none`, `constant`, `linear` |

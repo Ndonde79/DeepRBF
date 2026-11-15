@@ -1,5 +1,5 @@
 # DeepRBF - Copyright (c) 2026 DeepFusion Geoscience Limited. Licensed under the BSD 3-Clause License (see LICENSE).
-"""Anisotropy in the Leapfrog convention: a plane given by dip and dip azimuth, a pitch measured in the plane from the
+"""Anisotropy in the convention of common implicit-modelling software: a plane given by dip and dip azimuth, a pitch measured in the plane from the
 strike direction (dip azimuth - 90 degrees, right-hand rule) toward down-dip, and ranges along maximum, intermediate
 and minimum axes (minimum = plane normal). Pitch 90 puts the maximum axis down-dip."""
 import numpy as np

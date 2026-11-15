@@ -3,7 +3,7 @@
 //
 // Variogram: nugget + nested structures (spherical, exponential, gaussian), each with its own ranges and
 // GSLIB rotation (azimuth clockwise from north, dip positive down, rake), so models transfer from GSLIB,
-// Supervisor or Leapfrog variography without conversion. The variogram range is independent of the search.
+// variography from common packages without conversion. The variogram range is independent of the search.
 // Search: an anisotropic ellipsoid (radii and angles), with separate limits on original data and on
 // previously simulated nodes, as in GSLIB sgsim/sisim.
 // SGS: normal-score transform with linear tails, simple kriging (default) or ordinary kriging, multiple-grid
