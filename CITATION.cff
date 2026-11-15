@@ -11,7 +11,7 @@ authors:
   - family-names: Ndonde
     given-names: Ramadhani W.
     affiliation: "DeepFusion Geoscience Limited, Dar es Salaam, Tanzania"
-version: 3.4.0
+version: 3.4.1
 date-released: 2026-11-15
 license: BSD-3-Clause
 repository-code: "https://github.com/Ndonde79/DeepRBF"

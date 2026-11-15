@@ -9,6 +9,8 @@ import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
 
+@unittest.skipUnless(sys.platform=='win32' and (ROOT/'scripts'/'runtime_bootstrap.py').exists(),
+                     'Windows development tree only (needs scripts/runtime_bootstrap.py)')
 class RuntimeBootstrap(unittest.TestCase):
     def test_clean_path_numpy_scipy_native(self):
         code=r'''

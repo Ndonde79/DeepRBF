@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.4.1 — 15 November 2026
+
+Corrections to the Kilamongo example and the test suite. The native engine is unchanged: the 3.4.1 wheel carries the
+same compiled module as 3.4.0, which reports version 3.4.0.
+
+- `examples/kilamongo/kilamongo_signed_distance.json`: drift changed from `linear` to `constant`. With a linear drift
+  the signed-distance field crossed to the ore side beyond the drilling and the shell gained about 1.0 Mm³ against the
+  southern model boundary with no composites in it (1.79 Mm³ in total; precision 0.93, recall 0.77). With a constant
+  drift the shell is 0.78 Mm³ with the same honouring of the data (precision 0.93, recall 0.76). A signed-distance field
+  needs a constant drift: with none it reverts to zero, which is the boundary itself (25.5 Mm³).
+- `tests/test_runtime_bootstrap.py` runs only in the Windows development tree it was written for; elsewhere it is
+  skipped. On Linux (GCC 13.3, Eigen 3.4, Python 3.11) all 19 native tests and all other Python tests pass.
+
 ## 3.4.0 — 15 November 2026
 
 First public source release. Geostatistics with GSLIB conventions, and a faster dense solver.

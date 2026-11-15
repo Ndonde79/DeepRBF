@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deepfusion-deeprbf"
-version = "3.4.0"
+version = "3.4.1"
 description = "DeepRBF native engine and lithological simulation workflows"
 requires-python = ">=3.11,<3.12"
 dependencies = ["numpy", "pandas", "scipy"]
