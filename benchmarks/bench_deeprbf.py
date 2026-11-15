@@ -188,15 +188,33 @@ def b2():
 def case_b3(c):
     rng = np.random.default_rng(3)
     x = rng.uniform(0, 100, (1500, 3))
-    ind = (np.abs(x[:, 2] - (50 + 0.2 * (x[:, 0] - 50))) < 6).astype(float)   # a 12 m thick dipping lens
+    lens = lambda p: np.abs(p[:, 2] - (50 + 0.2 * (p[:, 0] - 50))) < 6                # a 12 m thick dipping lens
+    ind = lens(x).astype(float)
     m, tf = fit(c["kernel"], c["eps"], c["reg"], x, ind, drift=c["drift"])
     far = np.c_[rng.uniform(150, 300, (5000, 1)), rng.uniform(0, 100, (5000, 2))]   # 50-200 m beyond the data, in strike
+    across = np.c_[rng.uniform(0, 100, (5000, 2)), np.where(rng.random(5000) < 0.5, rng.uniform(150, 300, 5000),
+                                                             rng.uniform(-200, -50, 5000))]   # 50-200 m above / below
     v, _ = predict(m, far)
+    va, _ = predict(m, across)
     inside = np.c_[rng.uniform(0, 100, (5000, 2)), rng.uniform(0, 100, (5000, 1))]
     vi, _ = predict(m, inside)
-    ti = (np.abs(inside[:, 2] - (50 + 0.2 * (inside[:, 0] - 50))) < 6)
-    return dict(far_mean=float(v.mean()), far_p99=float(np.quantile(v, 0.99)), far_frac_above_0_5=float((v > 0.5).mean()),
-                inside_accuracy=float(((vi > 0.5) == ti).mean()), fit_s=tf)
+    ti = lens(inside)
+    out = dict(far_mean=float(v.mean()), far_p99=float(np.quantile(v, 0.99)), far_frac_above_0_5=float((v > 0.5).mean()),
+               across_frac_above_0_5=float((va > 0.5).mean()),
+               inside_accuracy=float(((vi > 0.5) == ti).mean()), fit_s=tf)
+    # 3.4.2: the same data coded as signed distance (distance to the nearest sample of the other class, ore negative);
+    # inside where the field is <= 0, so a far field that drifts to or below zero counts as ore.
+    from scipy.spatial import cKDTree
+    o = ind > 0.5
+    sd = cKDTree(x[o]).query(x)[0]                                                  # waste: distance to nearest ore
+    sd[o] = -cKDTree(x[~o]).query(x[o])[0]                                         # ore: minus distance to nearest waste
+    ms, _ = fit(c["kernel"], c["eps"], c["reg"], x, sd, drift=c["drift"])
+    s_far, _ = predict(ms, far)
+    s_acr, _ = predict(ms, across)
+    s_in, _ = predict(ms, inside)
+    out.update(sd_far_frac_inside=float((s_far <= 0).mean()), sd_across_frac_inside=float((s_acr <= 0).mean()),
+               sd_inside_accuracy=float(((s_in <= 0) == ti).mean()))
+    return out
 
 
 def b3():
@@ -307,6 +325,10 @@ def case_b5(c):
         m.fit(Xf.tolist(), obs.astype(float).tolist())
         v = np.asarray(m.predict(gf.tolist()))
         out[name] = dict(**score(v > 0.5), seconds=round(time.perf_counter() - t, 1))
+        # 3.4.2: iso calibrated so that the shell volume matches the ore proportion of the (regularly spaced, hence
+        # declustered) composites, as Section 5.5 recommends
+        t_cal = float(np.quantile(v, 1.0 - obs.mean()))
+        out[name + "_calibrated"] = dict(**score(v > t_cal), iso=round(t_cal, 4))
     reset()
     return out
 

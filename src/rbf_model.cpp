@@ -601,6 +601,7 @@ void NativeExactRBFImplicitModel::fit_dense(
 
     for (int i = 0; i < n; ++i) b[static_cast<std::size_t>(i)] = values[static_cast<std::size_t>(i)];
     const ResolvedKernel kern = resolve_kernel(kernel_, epsilon_);
+    const double sys_reg = regularization_sign(kernel_id(kernel_)) * regularization_;
 
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(static)
@@ -613,7 +614,7 @@ void NativeExactRBFImplicitModel::fit_dense(
             const double r = distance3(ci, centers[static_cast<std::size_t>(j)]);
             A[row_off + static_cast<std::size_t>(j)] = kern(r);
         }
-        A[row_off + static_cast<std::size_t>(i)] += regularization_;
+        A[row_off + static_cast<std::size_t>(i)] += sys_reg;
 
         double pb[4] = {0.0, 0.0, 0.0, 0.0};
         poly_basis(poly_dim, ci, pb);
@@ -643,7 +644,7 @@ void NativeExactRBFImplicitModel::fit_iterative(
     RBFOperatorConfig op_cfg;
     op_cfg.kernel = kernel_;
     op_cfg.epsilon = epsilon_;
-    op_cfg.regularization = regularization_;
+    op_cfg.regularization = regularization_sign(kernel_id(kernel_)) * regularization_;
     // 3.3.2: ScalFMM supports the Gaussian kernel only; other kernels use the exact OpenMP product directly
     // (3.3.1 routed them through the adapter's slower fallback path on every product).
     op_cfg.prefer_scalfmm = (kernel_ == "gaussian");
@@ -701,7 +702,7 @@ void NativeExactRBFImplicitModel::fit_iterative(
     ddm_cfg.max_levels = 2;
     ddm_cfg.use_direct_coarse = true;
 
-    TwoLevelDDMPreconditioner preconditioner(centers_, kernel_, epsilon_, regularization_, ddm_cfg, poly_dim);
+    TwoLevelDDMPreconditioner preconditioner(centers_, kernel_, epsilon_, regularization_sign(kernel_id(kernel_)) * regularization_, ddm_cfg, poly_dim);
 
     ApplyPreconditionerFn M = [&preconditioner](const std::vector<double>& r_aug,
                                                 std::vector<double>& z_aug) {

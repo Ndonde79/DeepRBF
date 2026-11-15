@@ -147,6 +147,14 @@ inline bool kernel_needs_linear_drift(KernelId id) {
     return id==KernelId::Cubic||id==KernelId::ThinPlate;
 }
 
+// Sign of the regularisation on the diagonal of the RBF matrix. A kernel that is conditionally positive definite of
+// order 1 with a positive sign (linear r, multiquadric) is conditionally NEGATIVE definite on the drift-orthogonal
+// subspace, so smoothing needs -nu there; +nu would move the spectrum towards zero (3.4.2 fix). Positive definite and
+// order-2 kernels (cubic r^3, thin plate) take +nu.
+inline double regularization_sign(KernelId id) {
+    return (id==KernelId::Linear||id==KernelId::Multiquadric) ? -1.0 : 1.0;
+}
+
 inline Matrix build_phi_matrix(const std::vector<Point3>& centers, const RBFConfig& cfg) {
     Matrix out(centers.size(), Vector(centers.size(), 0.0));
 
@@ -158,7 +166,7 @@ inline Matrix build_phi_matrix(const std::vector<Point3>& centers, const RBFConf
                 cfg.epsilon
             );
         }
-        out[i][i] += cfg.regularization;
+        out[i][i] += regularization_sign(kernel_id(cfg.kernel)) * cfg.regularization;
     }
 
     return out;

@@ -19,7 +19,8 @@ class NumericalRegression(unittest.TestCase):
             return {'gaussian':lambda:np.exp(-(r/1.3)**2),'linear':lambda:r,'cubic':lambda:r**3,'multiquadric':lambda:np.hypot(r,1.3),'inverse_multiquadric':lambda:1/np.hypot(r,1.3)}[kernel]()
         n=len(self.x);P=np.c_[np.ones(n),self.x]
         K=phi(np.linalg.norm(self.x[:,None]-self.x,axis=2))
-        K+=np.diag(np.full(n,reg) if weights is None else reg/weights**2)
+        sgn=-1.0 if kernel in ('linear','multiquadric') else 1.0   # order-1 CPD kernels take -reg (3.4.2)
+        K+=sgn*np.diag(np.full(n,reg) if weights is None else reg/weights**2)
         A=np.block([[K,P],[P.T,np.zeros((4,4))]])
         c=np.linalg.solve(A,np.r_[self.y,np.zeros(4)])
         return phi(np.linalg.norm(self.q[:,None]-self.x,axis=2))@c[:n]+np.c_[np.ones(len(self.q)),self.q]@c[n:]

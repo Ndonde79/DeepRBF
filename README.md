@@ -13,7 +13,14 @@ DeepRBF is a C++ engine with a Python interface for implicit geological modellin
   evaluations, OpenMP throughout.
 - **SVGP** (`deeprbf.svgp`, optional PyTorch): sparse variational Gaussian processes for ore shells and grades.
 
-Version 3.4.1. The first public source release was 3.4.0. See [CHANGELOG.md](CHANGELOG.md).
+Version 3.4.2. The first public source release was 3.4.0. See [CHANGELOG.md](CHANGELOG.md).
+
+## Documentation
+
+- [User Guide](docs/user_guide.md) ([PDF](docs/DeepRBF_User_Guide.pdf)): grade shells and geostatistics from drillhole
+  data, for resource geologists.
+- [Technical Reference Manual](docs/technical_reference.md) ([PDF](docs/DeepRBF_Technical_Reference.pdf)): kernels,
+  solvers, every workflow setting and report field, the native and Python interfaces, building and testing.
 
 ## Install
 
@@ -21,8 +28,8 @@ Python 3.11 on 64-bit Windows: download the wheel from the
 [latest release](https://github.com/Ndonde79/DeepRBF/releases/latest), check it against `SHA256SUMS`, and install it.
 
 ```
-certutil -hashfile deepfusion_deeprbf-3.4.1-cp311-cp311-win_amd64.whl SHA256
-pip install "deepfusion_deeprbf-3.4.1-cp311-cp311-win_amd64.whl[workflow]"
+certutil -hashfile deepfusion_deeprbf-3.4.2-cp311-cp311-win_amd64.whl SHA256
+pip install "deepfusion_deeprbf-3.4.2-cp311-cp311-win_amd64.whl[workflow]"
 ```
 
 The `workflow` extra adds scikit-image for the grade-shell workflow. The release wheel is portable: OpenMP only,
@@ -98,7 +105,7 @@ If you use DeepRBF, please cite the software release (metadata in [CITATION.cff]
 "Cite this repository" button gives APA and BibTeX):
 
 > Ndonde, R. W. (2026). *DeepRBF: implicit geological modelling and geostatistics with radial basis functions*
-> (Version 3.4.1) [Computer software]. DeepFusion Geoscience Limited. https://github.com/Ndonde79/DeepRBF
+> (Version 3.4.2) [Computer software]. DeepFusion Geoscience Limited. https://github.com/Ndonde79/DeepRBF
 
 A software paper describing DeepRBF is in preparation for *Computers & Geosciences*.
 

@@ -1,9 +1,27 @@
 # Changelog
 
+## 3.4.2 — 15 November 2026
+
+- **Regularisation sign (engine fix).** The linear and multiquadric kernels are conditionally positive definite of
+  order 1 only after a change of sign: on the drift-orthogonal subspace their matrices are negative definite. Earlier
+  releases added +ν to the diagonal for every kernel, which for these two moved the spectrum towards zero instead of
+  smoothing: with ν = 0.1 and noise of 0.3 the fit error rose to 18 (linear) and 8 (multiquadric). The engine now adds
+  −ν for these two kernels (`regularization_sign` in `kernels.hpp`; dense, iterative and preconditioner paths) and +ν
+  for all others, so ν smooths in every case. Results with ν = 0, and all results with the spherical, exponential,
+  Gaussian, generalised Cauchy, cubic or thin-plate kernels, are unchanged; no Kilamongo shell changes.
+  `tests/test_regularization_sign.py` checks dense and iterative fits; `tests/test_regression.py` uses the same sign.
+- `benchmarks/bench_deeprbf.py`: B3 adds a signed-distance coding and a far field across the lens; B5 adds a
+  threshold calibrated to the ore proportion. Results with 3.4.2 in `benchmarks/results/bench_results_3_4_2_B3_B5.jsonl`.
+- `docs/`: User Guide for resource geologists and Technical Reference Manual (Markdown and PDF), and
+  `docs/examples/krige_inside_shell.py`, all checked against 3.4.2.
+- `CITATION.cff`: ORCID added.
+- This changelog: the 3.4.1 entry wrongly said the 3.4.1 wheel carries the 3.4.0 native module; the wheel was rebuilt
+  and its native module reports 3.4.1.
+
 ## 3.4.1 — 15 November 2026
 
-Corrections to the Kilamongo example and the test suite. The native engine is unchanged: the 3.4.1 wheel carries the
-same compiled module as 3.4.0, which reports version 3.4.0.
+Corrections to the Kilamongo example and the test suite. The native engine code is unchanged from 3.4.0; the 3.4.1
+wheel is rebuilt from it and its native module reports version 3.4.1, as the version check requires.
 
 - `examples/kilamongo/kilamongo_signed_distance.json`: drift changed from `linear` to `constant`. With a linear drift
   the signed-distance field crossed to the ore side beyond the drilling and the shell gained about 1.0 Mm³ against the

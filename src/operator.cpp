@@ -34,7 +34,7 @@ RBFMatrixFreeOperator::RBFMatrixFreeOperator(
         throw std::invalid_argument("RBFMatrixFreeOperator: centers must not be empty");
     }
     (void)evaluate_kernel(cfg_.kernel, 0.0, cfg_.epsilon);
-    if (!std::isfinite(cfg_.regularization) || cfg_.regularization < 0)
+    if (!std::isfinite(cfg_.regularization))   // signed: negative for order-1 CPD kernels (3.4.2)
         throw std::invalid_argument("invalid RBF regularization");
     for (const auto& p : centers_) for (double v : p)
         if (!std::isfinite(v) || std::abs(v)>1e100)
