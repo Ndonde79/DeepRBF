@@ -1,5 +1,47 @@
 # Changelog
 
+## 3.5.0 — 15 November 2026
+
+Faster fits with long-tailed kernels. Results within the dense limits are unchanged apart from rounding (about 1e-15).
+
+- **Tabulated kernel evaluation** (`include/deeprbf/kernel_table.hpp`). In the O(n²) loops (dense assembly, exact
+  matrix-free product, prediction) the kernels `gen_cauchy`, `exponential`, `gaussian`, `multiquadric`,
+  `inverse_multiquadric` and `thin_plate` are evaluated from geometric bands of degree-6 Chebyshev interpolants
+  instead of `pow`/`exp` and the three-argument `hypot`. The table is checked against the closed form when built
+  (relative error ≤ 1e-13, about 1e-15 in practice; closed form used if any check fails). These loops are 3–4 times
+  faster: an iterative `gen_cauchy` fit of 7,980 drillhole samples takes 23 s instead of 81 s on two cores.
+- **H-matrix product** (`include/deeprbf/hmatrix.hpp`, `src/hmatrix.cpp`). k-d cluster tree, admissible blocks
+  compressed by adaptive cross approximation (partial pivoting, tolerance 1e-9) with QR/SVD recompression, exact near
+  field (stored within 2 GB, else recomputed). ACA checks the rows and columns farthest from its pivots, and random
+  ones, before accepting convergence, so separate drillhole pieces in one cluster are not missed. Product error about
+  1e-9 on drillhole data for every kernel; cost about O(n log n).
+- **Iterative solver.** With the H-matrix the two-level Schwarz preconditioner is applied in hybrid (multiplicative)
+  form, the coarse level holds up to 4,000 centres (partial-pivot LU instead of full-pivot LU, also without the
+  H-matrix) and the GMRES restart grows to at most 500 vectors within 512 MB. The local blocks of the preconditioner
+  now run in parallel. `set_hmatrix("auto")` (default) uses the H-matrix from 4,000 centres for `gen_cauchy`,
+  `exponential`, `linear`, `cubic` and `thin_plate`; the Gaussian, multiquadric and inverse multiquadric kernels keep the
+  exact product (their ill-conditioned systems amplify the product error). The 7,980-sample fit above takes 4.7 s
+  (17 times faster than 3.4.2); 19,980 samples take 22 s and 39,960 samples 117 s on two cores. On a 24-thread
+  workstation: 8,000 samples 2.0 s (3.4.2: 23.0 s), 20,000 in 10 s, 40,000 in 42 s, 80,000 in 182 s.
+- **Preconditioner fix (affects 3.4.2 too).** The coarse level and each local block of the Schwarz preconditioner
+  re-checked their solve on every application and dropped out when the residual exceeded 1e-8. On ill-conditioned
+  blocks (closely spaced composites) that made the preconditioner change from one GMRES iteration to the next, and
+  GMRES stalled. Validity is now decided once, by a test solve when the preconditioner is built (relative residual
+  1e-6), and blocks up to 25% over the size limit are kept. The Kilamongo indicator fit with `gen_cauchy` (17,933
+  points), which never converged before, now converges in 45 iterations (28 s with the H-matrix, 136 s with the exact
+  product, on two cores); the whole shell, including a 4.5-million-node grid, takes 255 s on the workstation.
+- **Exact residual check.** After every iterative fit the residual is computed exactly on 2,000 evenly spaced rows. If
+  an H-matrix solution fails the check, the solve is repeated with the exact product (backend name contains
+  `after_hmatrix_check`), so a result is never less accurate than with the exact product.
+- New Python API: `NativeExactRBFImplicitModel.set_hmatrix`, `hmatrix_mode`, `iterative_info`, `weights`; class
+  `HMatrix`; function `kernel_table_check`.
+- Tests: `tests/test_kernel_table.py`, `tests/test_hmatrix.py` (277 Python tests pass, 3 skipped).
+- Benchmark B7 (`benchmarks/bench_deeprbf.py`): dense, exact-product and H-matrix fits of `gen_cauchy` and
+  `exponential` on drillhole-like data, 5,000 to 80,000 centres.
+- Known limitation, unchanged from 3.4.2: GMRES may not converge in the iterative path for the `cubic` kernel and for
+  wide Gaussian shapes.
+- Documentation: Technical Reference (Solvers, native interface) and User Guide updated for 3.5.0.
+
 ## 3.4.2 — 15 November 2026
 
 - **Regularisation sign (engine fix).** The linear and multiquadric kernels are conditionally positive definite of

@@ -5,6 +5,9 @@
 // ---- DeepRBF headers ----
 #include "deeprbf/core.hpp"
 #include "deeprbf/kernels.hpp"
+#include "deeprbf/kernel_table.hpp"
+#include "deeprbf/hmatrix.hpp"
+#include <random>
 #include "deeprbf/spatial_hash.hpp"
 #include "deeprbf/nested_variogram.hpp"
 #include "deeprbf/local_variogram.hpp"
@@ -268,6 +271,14 @@ PYBIND11_MODULE(deeprbf_recovered, m) {
             py::arg("points"))
         .def("is_fitted",       &NativeExactRBFImplicitModel::is_fitted)
         .def("n_centers",       &NativeExactRBFImplicitModel::n_centers)
+        .def("iterative_info",  &NativeExactRBFImplicitModel::iterative_info,
+             "3.5.0: last iterative fit: products, timings, H-matrix statistics, exact residual on sampled rows.")
+        .def_static("set_hmatrix", &NativeExactRBFImplicitModel::set_hmatrix, py::arg("mode"), py::arg("tol") = 1.0e-9,
+             py::arg("eta") = 1.5, py::arg("leaf_size") = 64, py::arg("near_memory_mb") = 2048.0,
+             "3.5.0: H-matrix/ACA product in the iterative solver: mode \"auto\" (n >= 4000), \"on\" or \"off\".")
+        .def_static("hmatrix_mode", &NativeExactRBFImplicitModel::hmatrix_mode)
+        .def("weights",         &NativeExactRBFImplicitModel::weights,
+             "Fitted coefficients: n kernel weights, then the drift coefficients (3.5.0).")
         .def("solver_backend",  &NativeExactRBFImplicitModel::solver_backend)
         .def("scalfmm_status",  &NativeExactRBFImplicitModel::scalfmm_status)
         .def("last_predict_backend", &NativeExactRBFImplicitModel::last_predict_backend)
@@ -292,6 +303,48 @@ PYBIND11_MODULE(deeprbf_recovered, m) {
               return evaluate_kernel(kernel, r, epsilon);
           }, py::arg("kernel"), py::arg("r"), py::arg("epsilon"),
           "Value of an RBF / covariance kernel at distance r (kernel string as for NativeExactRBFImplicitModel).");
+
+    py::class_<HMatrix>(m, "HMatrix",
+        "3.5.0: hierarchical (H-matrix/ACA) approximation of the kernel matrix K_ij = phi(|x_i - x_j|).")
+        .def(py::init([](const std::vector<Point3>& points, const std::string& kernel, double epsilon,
+                         double tol, double eta, int leaf_size, double near_memory_mb) {
+                 HMatrixOptions o; o.tol = tol; o.eta = eta; o.leaf_size = leaf_size; o.near_memory_mb = near_memory_mb;
+                 py::gil_scoped_release release;
+                 return new HMatrix(points, kernel, epsilon, o);
+             }),
+             py::arg("points"), py::arg("kernel"), py::arg("epsilon"), py::arg("tol") = 1.0e-9, py::arg("eta") = 1.5,
+             py::arg("leaf_size") = 64, py::arg("near_memory_mb") = 2048.0)
+        .def("apply", [](const HMatrix& h, const std::vector<double>& x) {
+                 std::vector<double> y; { py::gil_scoped_release release; h.apply(x, y); } return y; },
+             py::arg("x"), "y = K x (kernel matrix only, no regularisation).")
+        .def("size", &HMatrix::size)
+        .def("locate", &HMatrix::locate, py::arg("i"), py::arg("j"))
+        .def("stats", [](const HMatrix& h) {
+                 const auto& s = h.stats(); py::dict d;
+                 d["n"] = s.n; d["n_lowrank"] = s.n_lowrank; d["n_near"] = s.n_near; d["max_rank"] = s.max_rank;
+                 d["mean_rank"] = s.mean_rank; d["lowrank_mb"] = s.lowrank_mb; d["near_mb"] = s.near_mb;
+                 d["near_stored"] = s.near_stored; d["build_seconds"] = s.build_seconds; d["compression"] = s.compression;
+                 return d; });
+
+    m.def("kernel_table_check", [](const std::string& kernel, double epsilon, double d_max, int samples) {
+              const FastKernel fk(kernel, epsilon, d_max);
+              std::mt19937_64 rng(12345);
+              std::uniform_real_distribution<double> U(0.0, 1.0);
+              double max_abs = 0.0, max_rel = 0.0;
+              for (int i = 0; i < samples; ++i) {
+                  // half log-uniform over [1e-9, 1] x d_max, half uniform over [0, d_max]
+                  const double d = (i % 2) ? d_max * std::pow(10.0, -9.0 * U(rng)) : d_max * U(rng);
+                  const double ex = fk.exact(d), tb = fk(d), e = std::fabs(tb - ex);
+                  max_abs = std::max(max_abs, e);
+                  max_rel = std::max(max_rel, e / std::max(1.0, std::fabs(ex)));
+              }
+              py::dict out;
+              out["tabulated"] = fk.tabulated();
+              out["max_abs_err"] = max_abs;
+              out["max_rel_err"] = max_rel;
+              return out;
+          }, py::arg("kernel"), py::arg("epsilon"), py::arg("d_max"), py::arg("samples") = 200000,
+          "3.5.0: compare the tabulated kernel used in the O(n^2) loops with the closed form on random distances.");
 
     // -------------------------------------------------------------------------
     // Implicit geology — trend + weighted model

@@ -2,6 +2,7 @@
 #define DEEPRBF_RBF_MODEL_HPP
 
 #include <array>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -26,6 +27,13 @@ public:
     // a compact kernel. force_iterative_solver(true) still takes precedence.
     static void set_sparse_solver(bool force);
     static bool sparse_solver_forced();
+    // 3.5.0: hierarchical (H-matrix/ACA) product inside the iterative solver. mode "auto" (default: used when the
+    // iterative path runs with n >= 4000), "on" (always in the iterative path) or "off" (exact O(n^2) product).
+    // tol is the ACA tolerance relative to each block; eta the admissibility parameter; leaf_size the cluster size;
+    // near_memory_mb the budget for storing the exact near field (it is recomputed on each product when larger).
+    static void set_hmatrix(const std::string& mode, double tol = 1.0e-9, double eta = 1.5, int leaf_size = 64,
+                            double near_memory_mb = 2048.0);
+    static std::string hmatrix_mode();
 
     NativeExactRBFImplicitModel();
     NativeExactRBFImplicitModel(const std::string& kernel, double epsilon, double regularization);
@@ -50,10 +58,15 @@ public:
     bool is_fitted() const;
     int n_centers() const;
     std::string solver_backend() const;
+    // 3.5.0: fitted coefficients, n kernel weights followed by the drift coefficients.
+    const std::vector<double>& weights() const { return weights_; }
     std::string scalfmm_status() const;
     std::string last_predict_backend() const;
     // 3.3.3: last sparse fit: {nnz_lower, assembly_s, factor_s, solve_s, relative_residual}; empty otherwise
     std::vector<double> sparse_solve_info() const;
+    // 3.5.0: last iterative fit: products, timings, H-matrix statistics and an exact residual check on sampled
+    // rows (sampled_max_abs_residual, sampled_rel_residual = max |r_i| / max |b_i|); empty otherwise.
+    std::map<std::string, double> iterative_info() const { return iterative_info_; }
     std::string kernel() const;
     double epsilon() const;
     double regularization() const;
@@ -91,6 +104,7 @@ private:
     std::string scalfmm_status_;
     mutable std::string last_predict_backend_;
     std::vector<double> sparse_info_;
+    std::map<std::string, double> iterative_info_;
     int drift_columns_ = 4;                              // 0, 1 or 4; the sparse path supports all three
     std::shared_ptr<const CompactNeighbourGrid> compact_grid_;   // set at fit for compact kernels
 
@@ -102,6 +116,9 @@ private:
     static double dense_memory_mb_;
     static std::string predict_backend_;
     static bool force_sparse_;
+    static std::string hmatrix_mode_;
+    static double hmatrix_tol_, hmatrix_eta_, hmatrix_near_mb_;
+    static int hmatrix_leaf_;
 };
 
 } // namespace deeprbf

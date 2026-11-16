@@ -1,5 +1,5 @@
 # DeepRBF - Copyright (c) 2026 DeepFusion Geoscience Limited. Licensed under the BSD 3-Clause License (see LICENSE).
-"""DeepRBF 3.3.3 benchmark suite for the Computers & Geosciences software paper.
+"""DeepRBF benchmark suite (3.3.3; B7 added in 3.5.0) for the Computers & Geosciences software paper.
 
 Every result is appended as one JSON line to results/bench_results.jsonl, so a partial run is usable.
 All random inputs are seeded. Heavy cases run in a child process with a time limit, so one slow case
@@ -12,6 +12,7 @@ B3  drift: extrapolation of an indicator field beyond the data with none / const
 B4  prediction backends: exact direct sum, compact neighbour sum, ScalFMM (if built)
 B5  synthetic orebody recovery: two parallel lenses, drill spacing x nugget, anisotropic indicator RBF vs nearest neighbour
 B6  Kilamongo South public case: the three shell methods of deeprbf.workflow.shell
+B7  (3.5.0) global-kernel scaling on drillhole-like data: dense, GMRES with the exact product, GMRES with the H-matrix
 
 Usage:  python bench_deeprbf.py            (full suite)
         python bench_deeprbf.py B1 B5      (selected benchmarks)
@@ -48,6 +49,8 @@ def want(tag):
 
 
 def reset():
+    if hasattr(M, "set_hmatrix"):
+        M.set_hmatrix("auto")
     M.set_sparse_solver(False)
     M.force_iterative_solver(False)
     M.set_dense_direct_limit(8000)
@@ -365,7 +368,69 @@ def b6():
             emit(dict(bench="B6", settings=js, status="timeout"))
 
 
-CASES = dict(B1=case_b1, B2=case_b2, B3=case_b3, B4=case_b4, B5=case_b5)
+# ----------------------------------------------------------------------------------------- B7
+def drillhole_cloud(n, seed):
+    """Holes on a jittered 25 m grid, 2 m samples down a 60 degree dip, 60 samples per hole; a smooth contact."""
+    rng = np.random.default_rng(seed)
+    per = 60
+    holes = int(np.ceil(n / per))
+    g = int(np.ceil(np.sqrt(holes)))
+    pts = []
+    for k in range(holes):
+        x0, y0 = (k % g) * 25.0 + rng.normal(0, 3), (k // g) * 25.0 + rng.normal(0, 3)
+        t = np.arange(per) * 2.0
+        pts.append(np.c_[np.full(per, x0), y0 + 0.5 * t, -0.866 * t])
+    x = np.vstack(pts)[:n]
+    y = np.tanh((x[:, 2] + 60 + 15 * np.sin(x[:, 0] / 80)) / 8.0)
+    return x, y
+
+
+def case_b7(c):
+    reset()
+    x, y = drillhole_cloud(c["n"], c["seed"])
+    if c["solver"] == "dense":
+        M.set_dense_direct_limit(10 ** 7); M.set_dense_memory_limit_mb(1e7)
+    else:
+        M.force_iterative_solver(True)
+        M.set_hmatrix("on" if c["solver"] == "hmatrix" else "off")
+    m = M(c["kernel"], c["eps"], c["reg"])
+    m.set_drift("constant")
+    t = time.perf_counter()
+    m.fit(x.tolist(), y.tolist())
+    tf = time.perf_counter() - t
+    q = np.random.default_rng(7).uniform(x.min(0), x.max(0), (5000, 3))
+    v, tp = predict(m, q)
+    np.save(RES / f"_b7_{c['solver']}_{c['kernel']}_{c['n']}.npy", v)
+    out = dict(fit_s=tf, predict_5000_s=tp, backend=m.solver_backend())
+    if c["solver"] != "dense":
+        out["info"] = {k: float(v) for k, v in m.iterative_info().items()}
+    reset()
+    return out
+
+
+def b7():
+    if not hasattr(M, "set_hmatrix"):
+        emit(dict(bench="B7", status="skipped", reason="engine before 3.5.0"))
+        return
+    sizes = [3000, 6000] if QUICK else [5000, 10000, 20000, 40000, 80000]
+    for k, eps in [("gen_cauchy", 150.0), ("exponential", 150.0)]:
+        for N in sizes:
+            for solver in ["dense", "exact", "hmatrix"]:
+                if solver == "dense" and N > 10000:
+                    continue
+                if solver == "exact" and N > 20000:
+                    emit(dict(bench="B7", solver=solver, kernel=k, n=N, status="skipped", reason="exact O(n^2) product too slow")); continue
+                c = dict(b="B7", solver=solver, kernel=k, eps=eps, reg=1e-6, n=N, seed=3)
+                r = child(c, 3600)
+                for ref in ["dense", "exact"]:
+                    a_path, b_path = RES / f"_b7_{ref}_{k}_{N}.npy", RES / f"_b7_{solver}_{k}_{N}.npy"
+                    if ref != solver and a_path.exists() and b_path.exists() and r.get("status") is None:
+                        a, b = np.load(a_path), np.load(b_path)
+                        r[f"max_rel_diff_vs_{ref}"] = float(np.abs(a - b).max() / max(np.abs(a).max(), 1e-300))
+                emit(dict(bench="B7", solver=solver, kernel=k, epsilon=eps, n=N, **r))
+
+
+CASES = dict(B1=case_b1, B2=case_b2, B3=case_b3, B4=case_b4, B5=case_b5, B7=case_b7)
 
 if __name__ == "__main__":
     if "--case" in sys.argv:
@@ -373,7 +438,7 @@ if __name__ == "__main__":
         print("@@" + json.dumps(CASES[c["b"]](c), default=float), flush=True)
         sys.exit(0)
     t0 = time.perf_counter()
-    for tag, fn in [("B0", b0), ("B1", b1), ("B2", b2), ("B3", b3), ("B4", b4), ("B5", b5), ("B6", b6)]:
+    for tag, fn in [("B0", b0), ("B1", b1), ("B2", b2), ("B3", b3), ("B4", b4), ("B5", b5), ("B6", b6), ("B7", b7)]:
         if want(tag):
             try:
                 fn()

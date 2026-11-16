@@ -1,6 +1,6 @@
 ---
 title: "DeepRBF User Guide"
-subtitle: "Grade shells and geostatistics from drillhole data. Version 3.4.2"
+subtitle: "Grade shells and geostatistics from drillhole data. Version 3.5.0"
 author: "Ramadhani W. Ndonde, DeepFusion Geoscience Limited"
 date: "November 2026"
 ---
@@ -41,13 +41,13 @@ conda create -n deeprbf python=3.11
 conda activate deeprbf
 ```
 
-Download `deepfusion_deeprbf-3.4.2-cp311-cp311-win_amd64.whl` and `SHA256SUMS` from the
+Download `deepfusion_deeprbf-3.5.0-cp311-cp311-win_amd64.whl` and `SHA256SUMS` from the
 [latest release](https://github.com/Ndonde79/DeepRBF/releases/latest). Check the file before installing: the hash
 printed by `certutil` must match the line for the wheel in `SHA256SUMS`.
 
 ```
-certutil -hashfile deepfusion_deeprbf-3.4.2-cp311-cp311-win_amd64.whl SHA256
-pip install "deepfusion_deeprbf-3.4.2-cp311-cp311-win_amd64.whl[workflow]"
+certutil -hashfile deepfusion_deeprbf-3.5.0-cp311-cp311-win_amd64.whl SHA256
+pip install "deepfusion_deeprbf-3.5.0-cp311-cp311-win_amd64.whl[workflow]"
 ```
 
 The `[workflow]` part also installs scikit-image, which the shell workflow uses to contour the wireframe.
@@ -58,7 +58,7 @@ Check the installation:
 python -c "import deeprbf, deeprbf_recovered as n; print(deeprbf.__version__, n.__version__)"
 ```
 
-Both numbers must read `3.4.2`. DeepRBF refuses to start if the Python package and the compiled engine come from
+Both numbers must read `3.5.0`. DeepRBF refuses to start if the Python package and the compiled engine come from
 different versions; reinstall the wheel if they differ.
 
 ## Linux and macOS
@@ -169,8 +169,10 @@ For Kilamongo the zone dips 18° towards 068°, with the longest continuity down
 
 **Kernel.** Use `spherical` by default. It has a finite range, which lets DeepRBF use its sparse solver: this is
 what makes large drillhole sets fast. `exponential` and `gen_cauchy` have long tails; they give smoother shells
-far from data but every point influences every other, so large runs are much slower. `gen_cauchy:9:1.667` sets the
-two shape parameters (alpha and power) explicitly.
+far from data but every point influences every other. From version 3.5.0 large long-tailed fits use a hierarchical
+(H-matrix) solver and are many times faster than before (about 17 times at 8,000 composites; see the Technical
+Reference), but `spherical` remains the fastest choice. `gen_cauchy:9:1.667` sets the two shape parameters (alpha and
+power) explicitly.
 
 **Nugget and sill.** DeepRBF does not fit a variogram here. It uses the ratio nugget / (sill − nugget) as the
 smoothing (regularisation) of the interpolant. With the Kilamongo values, 0.309 / (12 − 0.309) = 0.026. A larger
@@ -456,13 +458,13 @@ shape (targets, realisations) in original grade units; `sis_gslib` returns the s
 | `unknown method ...` | `method` must be `indicator`, `signed_distance` or `contacts` |
 | `unknown RBF kernel: ...` | check the kernel spelling, e.g. `thin_plate`, not `thinplate` |
 | `set_drift("none"): kernel "linear" is not positive definite` | `linear`, `cubic`, `thin_plate` and `multiquadric` need a drift; use `constant` or `linear` |
-| `DeepRBF Python 3.4.2 requires native 3.4.2; loaded ...` | the Python package and the engine come from different releases; reinstall the wheel |
+| `DeepRBF Python 3.5.0 requires native 3.5.0; loaded ...` | the Python package and the engine come from different releases; reinstall the wheel |
 | `No module named skimage` | install with the `[workflow]` extra, or `pip install scikit-image` |
 | `survey table lacks columns [...]; set them in "columns"` | a name in `drillholes.columns` does not match your CSV header (names are case-sensitive) |
 | holes listed in `holes_skipped_...` | those holes have no collar or no survey record; fix the database |
 | one huge body touching the box edge | signed distance with `linear` or `none` drift; use `constant` |
 | many tiny bodies | raise `min_volume`, raise `iso`, or check the trend against the geology |
-| run is very slow | a long-tailed kernel (`exponential`, `gen_cauchy`) on many composites; use `spherical`, or a coarser `spacing` while testing |
+| run is very slow | a long-tailed kernel (`exponential`, `gen_cauchy`) on many composites with a release before 3.5.0; upgrade, use `spherical`, or a coarser `spacing` while testing |
 
 # References
 

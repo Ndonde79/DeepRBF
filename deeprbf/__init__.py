@@ -4,7 +4,7 @@
 from . import _runtime
 from deeprbf_recovered import *
 from deeprbf_recovered import __version__ as __native_version__
-__version__ = '3.4.2'
+__version__ = '3.5.0'
 if __native_version__ != __version__:
     raise ImportError(f'DeepRBF Python {__version__} requires native {__version__}; loaded {__native_version__}. Select the matching build or install the matching wheel.')
 import deeprbf_core as _core

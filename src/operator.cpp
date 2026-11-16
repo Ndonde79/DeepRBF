@@ -39,6 +39,13 @@ RBFMatrixFreeOperator::RBFMatrixFreeOperator(
     for (const auto& p : centers_) for (double v : p)
         if (!std::isfinite(v) || std::abs(v)>1e100)
             throw std::invalid_argument("invalid RBF center coordinate");
+    kernel_fast_ = FastKernel(cfg_.kernel, cfg_.epsilon, bbox_diagonal(centers_));
+    if (cfg_.use_hmatrix) {
+        hmat_ = std::make_unique<HMatrix>(centers_, cfg_.kernel, cfg_.epsilon, cfg_.hmatrix_options);
+        backend_name_ = "hmatrix_aca";
+        backend_message_ = "H-matrix/ACA product";
+        scalfmm_initialized_ = true;   // no ScalFMM with the H-matrix
+    }
 }
 
 int RBFMatrixFreeOperator::size() const { return static_cast<int>(centers_.size()); }
@@ -84,7 +91,7 @@ void RBFMatrixFreeOperator::apply_direct(const std::vector<double>& x,
                                          std::vector<double>& y) const {
     const int n = static_cast<int>(centers_.size());
     y.assign(static_cast<std::size_t>(n), 0.0);
-    const ResolvedKernel kern = resolve_kernel(cfg_.kernel, cfg_.epsilon);   // validates kernel name and epsilon once
+    const FastKernel& kern = kernel_fast_;   // 3.5.0: tabulated kernel, validated in the constructor
 
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(static)
@@ -95,7 +102,7 @@ void RBFMatrixFreeOperator::apply_direct(const std::vector<double>& x,
         const auto& center_i = centers_[static_cast<std::size_t>(i)];
         for (int j = 0; j < n; ++j) {
             const double term = x[static_cast<std::size_t>(j)] *
-                kern(distance3(center_i, centers_[static_cast<std::size_t>(j)]));
+                kern(fast_distance(center_i, centers_[static_cast<std::size_t>(j)]));
             const double t = sum + term;
             if (std::abs(sum) >= std::abs(term)) {
                 compensation += (sum - t) + term;
@@ -118,6 +125,11 @@ void RBFMatrixFreeOperator::apply(const std::vector<double>& x,
     for (double v : x) if (!std::isfinite(v))
         throw std::invalid_argument("nonfinite RBF operator weights");
 
+    if (hmat_) {
+        hmat_->apply(x, y);
+        for (int i = 0; i < n; ++i) y[static_cast<std::size_t>(i)] += cfg_.regularization * x[static_cast<std::size_t>(i)];
+        return;
+    }
     initialize_scalfmm_if_needed();
     if (scalfmm_) {
         try {

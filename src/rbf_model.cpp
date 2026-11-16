@@ -1,8 +1,11 @@
+#include <cstdlib>
 #include "deeprbf/kernels.hpp"
 #include "deeprbf/rbf_model.hpp"
 
 #include "deeprbf/domain_decomposition.hpp"
 #include "deeprbf/gmres.hpp"
+#include "deeprbf/kernel_table.hpp"
+#include <chrono>
 #include "deeprbf/mkl_solver.hpp"
 #include "deeprbf/operator.hpp"
 #include "deeprbf/scalfmm_adapter.hpp"
@@ -55,7 +58,7 @@ struct CoarseLevelBlock {
     std::vector<int> indices;
     std::vector<double> A_factorized;
     std::vector<double> factorized_matrix;
-    std::shared_ptr<Eigen::FullPivLU<Eigen::MatrixXd>> factor;
+    std::shared_ptr<Eigen::PartialPivLU<Eigen::MatrixXd>> factor;   // 3.5.0: blocked partial-pivot LU (was full pivot)
     int local_dim = 0;
     bool valid = false;
     bool is_recursive = false;
@@ -66,6 +69,7 @@ struct TwoLevelDDMConfig {
     int fine_subdomain_size = DEFAULT_FINE_SUBDOMAIN_SIZE;
     double overlap_ratio = DEFAULT_OVERLAP_RATIO;
     double coarse_ratio = DEFAULT_COARSE_RATIO;
+    int coarse_cap = 2000;   // 3.5.0: 4,000 with the H-matrix product (partial-pivot LU)
     int max_levels = 2;
     bool use_direct_coarse = true;
 };
@@ -186,13 +190,14 @@ CoarseLevelBlock build_coarse_level(
     double epsilon,
     double regularization,
     double coarse_ratio,
-    int poly_dim = 4
+    int poly_dim = 4,
+    int coarse_cap = 2000
 ) {
     CoarseLevelBlock coarse;
 
     const int n = static_cast<int>(centers.size());
-    // 3.3.2: coarse level capped at 2,000 points (dense full-pivot LU cost grows with its cube).
-    const int n_coarse = std::min(2000, std::max(MIN_COARSE_SIZE,
+    // 3.3.2: coarse level capped (dense LU cost grows with its cube): 2,000 points, 4,000 with the H-matrix (3.5.0).
+    const int n_coarse = std::min(coarse_cap, std::max(MIN_COARSE_SIZE,
                                   static_cast<int>(n * coarse_ratio)));
 
     if (n_coarse >= n) { coarse.valid = false; return coarse; }
@@ -246,8 +251,13 @@ CoarseLevelBlock build_coarse_level(
 
     using RowMatrix=Eigen::Matrix<double,Eigen::Dynamic,Eigen::Dynamic,Eigen::RowMajor>;
     Eigen::Map<const RowMatrix> matrix(coarse.A_factorized.data(),dim,dim);
-    coarse.factor=std::make_shared<Eigen::FullPivLU<Eigen::MatrixXd>>(matrix);
-    coarse.valid = coarse.factor->rank()==dim;
+    coarse.factor=std::make_shared<Eigen::PartialPivLU<Eigen::MatrixXd>>(matrix);
+    {   // validity: finite factors and an accurate solve of a test system
+        const Eigen::VectorXd ones=Eigen::VectorXd::Ones(dim);
+        const Eigen::VectorXd z=coarse.factor->solve(ones);
+        coarse.valid = coarse.factor->matrixLU().allFinite() && z.allFinite() &&
+                       (matrix*z-ones).norm() <= 1e-6*ones.norm();
+    }
     return coarse;
 }
 
@@ -260,8 +270,12 @@ bool solve_coarse_level(const CoarseLevelBlock& coarse,
     Eigen::VectorXd x=coarse.factor->solve(b);
     using RowMatrix=Eigen::Matrix<double,Eigen::Dynamic,Eigen::Dynamic,Eigen::RowMajor>;
     Eigen::Map<const RowMatrix> matrix(coarse.A_factorized.data(),dim,dim);
-    if(!x.allFinite()||(matrix*x-b).norm()>1e-8*std::max(1.,b.norm()))return false;
-    rhs.assign(x.data(),x.data()+dim);backend_used="cached_eigen_full_pivot_lu";return true;
+    // 3.5.0: no residual test here. Accepting or rejecting the solve depending on the input made the preconditioner
+    // change from one GMRES iteration to the next on ill-conditioned blocks, and GMRES stalled; validity is decided once,
+    // when the level is built.
+    (void)matrix;
+    if(!x.allFinite())return false;
+    rhs.assign(x.data(),x.data()+dim);backend_used="cached_eigen_partial_pivot_lu";return true;
 }
 
 class TwoLevelDDMPreconditioner {
@@ -291,7 +305,8 @@ public:
             block.local_n = static_cast<int>(block.overlap_indices.size());
             block.local_dim = block.local_n + poly_dim_;
 
-            if (block.local_n <= 0 || block.local_n > LOCAL_SUBDOMAIN_DIRECT_LIMIT) {
+            // 3.5.0: the overlap is sized to the limit before the core is added back, so allow that small excess
+            if (block.local_n <= 0 || block.local_n > LOCAL_SUBDOMAIN_DIRECT_LIMIT + LOCAL_SUBDOMAIN_DIRECT_LIMIT / 4) {
                 local_blocks_.push_back(std::move(block));
                 continue;
             }
@@ -351,12 +366,18 @@ public:
             Eigen::Map<const RowMatrix> matrix(block.A_factorized.data(),dim,dim);
             block.factor=std::make_shared<Eigen::FullPivLU<Eigen::MatrixXd>>(matrix);
             block.valid = block.factor->rank()==dim;
+            if (block.valid) {   // 3.5.0: one test solve decides validity (see solve_coarse_level)
+                Eigen::VectorXd t(dim);
+                for (int i = 0; i < dim; ++i) t(i) = std::sin(1.0 + 0.7 * i);
+                const Eigen::VectorXd z = block.factor->solve(t);
+                block.valid = z.allFinite() && (matrix * z - t).norm() <= 1e-6 * t.norm();
+            }
             local_blocks_.push_back(std::move(block));
         }
 
         coarse_level_ = build_coarse_level(
             centers_, kernel_, epsilon_, regularization_,
-            cfg_.coarse_ratio, poly_dim_);
+            cfg_.coarse_ratio, poly_dim_, cfg_.coarse_cap);
 
         if (cfg_.max_levels > 1 && coarse_level_.valid &&
             static_cast<int>(coarse_level_.indices.size()) > MIN_COARSE_SIZE * 2) {
@@ -370,7 +391,7 @@ public:
 
             auto next_coarse = std::make_unique<CoarseLevelBlock>(
                 build_coarse_level(coarse_centers, kernel_, epsilon_, regularization_,
-                                   cfg_.coarse_ratio, poly_dim_));
+                                   cfg_.coarse_ratio, poly_dim_, cfg_.coarse_cap));
             coarse_level_.next_level = std::move(next_coarse);
             coarse_level_.is_recursive = true;
         }
@@ -378,15 +399,20 @@ public:
 
     void apply(const std::vector<double>& r_aug, std::vector<double>& z_aug) const {
         const int n = static_cast<int>(centers_.size());
-        const int poly_dim = poly_dim_;
-        const int aug_dim = n + poly_dim;
-
+        const int aug_dim = n + poly_dim_;
         if (static_cast<int>(r_aug.size()) != aug_dim) {
             throw std::runtime_error("TwoLevelDDMPreconditioner::apply: input size mismatch.");
         }
-
         z_aug.assign(static_cast<std::size_t>(aug_dim), 0.0);
+        add_coarse(r_aug, z_aug);
+        add_local(r_aug, z_aug);
+    }
 
+    // 3.5.0: the two halves separately, for the multiplicative (hybrid) form.
+    // add_coarse: z += coarse correction of r (drift coefficients included).
+    void add_coarse(const std::vector<double>& r_aug, std::vector<double>& z_aug) const {
+        const int n = static_cast<int>(centers_.size());
+        const int poly_dim = poly_dim_;
         if (coarse_level_.valid) {
             const int n_coarse = static_cast<int>(coarse_level_.indices.size());
             const int coarse_dim = coarse_level_.local_dim;
@@ -412,9 +438,22 @@ public:
             }
         }
 
+    }
+
+    // add_local: z += restricted additive Schwarz solution of r on the local blocks; where no block or coarse level
+    // covers a point, z takes r.
+    void add_local(const std::vector<double>& r_aug, std::vector<double>& z_aug) const {
+        const int n = static_cast<int>(centers_.size());
+        const int poly_dim = poly_dim_;
+        const int aug_dim = n + poly_dim;
         std::vector<int> hit_count(static_cast<std::size_t>(aug_dim), 0);
 
-        for (const auto& block : local_blocks_) {
+        // Each point is owned by exactly one block, so the writes below are disjoint and the blocks run in parallel.
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(dynamic, 1)
+#endif
+        for (int bi = 0; bi < static_cast<int>(local_blocks_.size()); ++bi) {
+            const auto& block = local_blocks_[static_cast<std::size_t>(bi)];
             if (!block.valid) continue;
 
             const int dim = block.local_dim;
@@ -431,7 +470,8 @@ public:
             Eigen::VectorXd x=block.factor->solve(b);
             using RowMatrix=Eigen::Matrix<double,Eigen::Dynamic,Eigen::Dynamic,Eigen::RowMajor>;
             Eigen::Map<const RowMatrix> matrix(block.A_factorized.data(),dim,dim);
-            if(!x.allFinite()||(matrix*x-b).norm()>1e-8*std::max(1.,b.norm()))continue;
+            (void)matrix;
+            if(!x.allFinite())continue;   // 3.5.0: no input-dependent residual test (see solve_coarse_level)
             rhs_loc.assign(x.data(),x.data()+dim);
 
             // 3.3.2 restricted additive Schwarz: each point takes the local solution of the block that owns it.
@@ -510,6 +550,25 @@ void NativeExactRBFImplicitModel::set_predict_backend(const std::string& backend
 std::string NativeExactRBFImplicitModel::predict_backend() { return predict_backend_; }
 
 bool NativeExactRBFImplicitModel::force_sparse_ = false;
+std::string NativeExactRBFImplicitModel::hmatrix_mode_ = "auto";
+double NativeExactRBFImplicitModel::hmatrix_tol_ = 1.0e-9;
+double NativeExactRBFImplicitModel::hmatrix_eta_ = 1.5;
+double NativeExactRBFImplicitModel::hmatrix_near_mb_ = 2048.0;
+int NativeExactRBFImplicitModel::hmatrix_leaf_ = 64;
+constexpr int HMATRIX_AUTO_MIN_N = 4000;
+// 3.5.0: accepted exact residual of an H-matrix solution on the sampled rows, max |r_i| / max |b_i|.
+constexpr double HMATRIX_CHECK_REL_RESIDUAL = 1.0e-4;
+void NativeExactRBFImplicitModel::set_hmatrix(const std::string& mode, double tol, double eta, int leaf_size,
+                                              double near_memory_mb) {
+    if (mode != "auto" && mode != "on" && mode != "off")
+        throw std::invalid_argument("set_hmatrix: mode must be \"auto\", \"on\" or \"off\"");
+    if (!(tol > 0.0 && tol < 1.0)) throw std::invalid_argument("set_hmatrix: tol must be in (0, 1)");
+    if (!(eta > 0.0 && std::isfinite(eta))) throw std::invalid_argument("set_hmatrix: eta must be positive");
+    if (leaf_size < 4) throw std::invalid_argument("set_hmatrix: leaf_size must be >= 4");
+    if (!(near_memory_mb >= 0.0 && std::isfinite(near_memory_mb))) throw std::invalid_argument("set_hmatrix: near_memory_mb must be >= 0");
+    hmatrix_mode_ = mode; hmatrix_tol_ = tol; hmatrix_eta_ = eta; hmatrix_leaf_ = leaf_size; hmatrix_near_mb_ = near_memory_mb;
+}
+std::string NativeExactRBFImplicitModel::hmatrix_mode() { return hmatrix_mode_; }
 void NativeExactRBFImplicitModel::set_sparse_solver(bool force) { force_sparse_ = force; }
 bool NativeExactRBFImplicitModel::sparse_solver_forced() { return force_sparse_; }
 
@@ -600,7 +659,7 @@ void NativeExactRBFImplicitModel::fit_dense(
     std::vector<double> b(static_cast<std::size_t>(dim), 0.0);
 
     for (int i = 0; i < n; ++i) b[static_cast<std::size_t>(i)] = values[static_cast<std::size_t>(i)];
-    const ResolvedKernel kern = resolve_kernel(kernel_, epsilon_);
+    const FastKernel kern(kernel_, epsilon_, bbox_diagonal(centers));   // 3.5.0: tabulated kernel
     const double sys_reg = regularization_sign(kernel_id(kernel_)) * regularization_;
 
 #if defined(_OPENMP)
@@ -611,7 +670,7 @@ void NativeExactRBFImplicitModel::fit_dense(
         const std::size_t row_off = static_cast<std::size_t>(i) * static_cast<std::size_t>(dim);
 
         for (int j = 0; j < n; ++j) {
-            const double r = distance3(ci, centers[static_cast<std::size_t>(j)]);
+            const double r = fast_distance(ci, centers[static_cast<std::size_t>(j)]);
             A[row_off + static_cast<std::size_t>(j)] = kern(r);
         }
         A[row_off + static_cast<std::size_t>(i)] += sys_reg;
@@ -640,6 +699,9 @@ void NativeExactRBFImplicitModel::fit_iterative(
     const int n = static_cast<int>(centers.size());
     const int poly_dim = poly_dim_;
     const int aug_dim = n + poly_dim;
+    iterative_info_.clear();
+    const auto t_start = std::chrono::steady_clock::now();
+    auto secs = [](auto a, auto b) { return std::chrono::duration<double>(b - a).count(); };
 
     RBFOperatorConfig op_cfg;
     op_cfg.kernel = kernel_;
@@ -649,23 +711,41 @@ void NativeExactRBFImplicitModel::fit_iterative(
     // (3.3.1 routed them through the adapter's slower fallback path on every product).
     op_cfg.prefer_scalfmm = (kernel_ == "gaussian");
 
-    RBFMatrixFreeOperator Aop(centers, op_cfg);
+    // 3.5.0: H-matrix/ACA product. "auto" uses it for the finitely smooth kernels (gen_cauchy, exponential, linear,
+    // cubic, thin plate) from 4,000 points. The infinitely smooth ones (gaussian, multiquadric, inverse multiquadric)
+    // give very ill-conditioned systems at practical shape parameters, where a 1e-9 product error is amplified by the
+    // large weights, so they keep the exact product unless mode is "on". Either way an exact residual check on
+    // sampled rows follows, and the solve is repeated with the exact product if the check fails.
+    const KernelId kid = kernel_id(kernel_);
+    const bool smooth_ill_conditioned = kid == KernelId::Gaussian || kid == KernelId::Multiquadric ||
+                                        kid == KernelId::InverseMultiquadric;
+    HMatrixOptions hopt;
+    hopt.tol = hmatrix_tol_; hopt.eta = hmatrix_eta_; hopt.leaf_size = hmatrix_leaf_; hopt.near_memory_mb = hmatrix_near_mb_;
+    const bool want_h = hmatrix_mode_ == "on" ||
+                        (hmatrix_mode_ == "auto" && n >= HMATRIX_AUTO_MIN_N && !smooth_ill_conditioned);
+
+    std::unique_ptr<RBFMatrixFreeOperator> op;
+    if (want_h) {
+        RBFOperatorConfig hcfg = op_cfg;
+        hcfg.use_hmatrix = true; hcfg.prefer_scalfmm = false; hcfg.hmatrix_options = hopt;
+        op = std::make_unique<RBFMatrixFreeOperator>(centers, hcfg);
+    } else {
+        op = std::make_unique<RBFMatrixFreeOperator>(centers, op_cfg);
+    }
+    int n_products = 0;
 
     std::vector<double> rhs(static_cast<std::size_t>(aug_dim), 0.0);
     for (int i = 0; i < n; ++i) rhs[static_cast<std::size_t>(i)] = values[static_cast<std::size_t>(i)];
 
-    ApplyOperatorFn A = [this, &Aop, n, aug_dim, poly_dim](const std::vector<double>& x_aug,
+    ApplyOperatorFn A = [this, &op, &n_products, n, aug_dim, poly_dim](const std::vector<double>& x_aug,
                                                  std::vector<double>& y_aug) {
         if (static_cast<int>(x_aug.size()) != aug_dim)
             throw std::runtime_error("fit_iterative operator: input size mismatch.");
-
         y_aug.assign(static_cast<std::size_t>(aug_dim), 0.0);
-
-        std::vector<double> lambda(x_aug.begin(),
-                                   x_aug.begin() + static_cast<std::ptrdiff_t>(n));
+        std::vector<double> lambda(x_aug.begin(), x_aug.begin() + static_cast<std::ptrdiff_t>(n));
         std::vector<double> y_lambda(static_cast<std::size_t>(n), 0.0);
-        Aop.apply(lambda, y_lambda);
-
+        op->apply(lambda, y_lambda);
+        ++n_products;
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(static)
 #endif
@@ -677,7 +757,6 @@ void NativeExactRBFImplicitModel::fit_iterative(
             for (int k = 0; k < poly_dim; ++k) poly += x_aug[static_cast<std::size_t>(n + k)] * pb[k];
             y_aug[static_cast<std::size_t>(i)] = y_lambda[static_cast<std::size_t>(i)] + poly;
         }
-
         double s0 = 0.0, s1 = 0.0, s2 = 0.0, s3 = 0.0;
 #if defined(_OPENMP)
 #pragma omp parallel for reduction(+ : s0, s1, s2, s3) schedule(static)
@@ -685,12 +764,8 @@ void NativeExactRBFImplicitModel::fit_iterative(
         for (int i = 0; i < n; ++i) {
             const double li = lambda[static_cast<std::size_t>(i)];
             const auto& c = centers_[static_cast<std::size_t>(i)];
-            s0 += li;
-            s1 += li * c[0];
-            s2 += li * c[1];
-            s3 += li * c[2];
+            s0 += li; s1 += li * c[0]; s2 += li * c[1]; s3 += li * c[2];
         }
-
         const double s[4] = {s0, s1, s2, s3};
         for (int k = 0; k < poly_dim; ++k) y_aug[static_cast<std::size_t>(n + k)] = s[k];
     };
@@ -701,32 +776,124 @@ void NativeExactRBFImplicitModel::fit_iterative(
     ddm_cfg.coarse_ratio = DEFAULT_COARSE_RATIO;
     ddm_cfg.max_levels = 2;
     ddm_cfg.use_direct_coarse = true;
+    if (want_h) ddm_cfg.coarse_cap = 4000;   // 3.5.0: larger coarse level when the products are cheap
 
-    TwoLevelDDMPreconditioner preconditioner(centers_, kernel_, epsilon_, regularization_sign(kernel_id(kernel_)) * regularization_, ddm_cfg, poly_dim);
+    const auto t_op = std::chrono::steady_clock::now();
+    TwoLevelDDMPreconditioner preconditioner(centers_, kernel_, epsilon_, op_cfg.regularization, ddm_cfg, poly_dim);
+    const auto t_pre = std::chrono::steady_clock::now();
 
-    ApplyPreconditionerFn M = [&preconditioner](const std::vector<double>& r_aug,
+    // 3.5.0: hybrid (multiplicative) two-level form when the product is cheap (H-matrix): coarse correction, residual
+    // update with one product, then the local blocks on what is left. The additive form is kept for the exact product.
+    bool hybrid = want_h;
+    ApplyPreconditionerFn M = [&preconditioner, &A, &hybrid, aug_dim](const std::vector<double>& r_aug,
                                                 std::vector<double>& z_aug) {
-        preconditioner.apply(r_aug, z_aug);
+        if (!hybrid) { preconditioner.apply(r_aug, z_aug); return; }
+        z_aug.assign(static_cast<std::size_t>(aug_dim), 0.0);
+        preconditioner.add_coarse(r_aug, z_aug);
+        std::vector<double> az, r2(static_cast<std::size_t>(aug_dim));
+        A(z_aug, az);
+        for (int i = 0; i < aug_dim; ++i) r2[static_cast<std::size_t>(i)] = r_aug[static_cast<std::size_t>(i)] - az[static_cast<std::size_t>(i)];
+        preconditioner.add_local(r2, z_aug);
     };
 
     GMRESConfig gcfg;
     gcfg.restart = gmres_restart_;
+    // 3.5.0: with the H-matrix, a longer restart (Krylov basis within ~512 MB, at most 500 vectors): restarts cost
+    // more iterations than the extra orthogonalisation.
+    if (want_h)
+        gcfg.restart = std::max(gmres_restart_, std::min(500, static_cast<int>(512.0e6 / (16.0 * aug_dim))));
     gcfg.max_iter = gmres_max_iter_;
     gcfg.tol = gmres_tol_;
 
+    // Exact residual on up to 2,000 evenly spaced rows (closed-form kernel sum, independent of the H-matrix):
+    // max |r_i| / max |b_i|.
+    const FastKernel fk(kernel_, epsilon_, bbox_diagonal(centers_));
+    double max_b = 0.0;
+    for (int i = 0; i < n; ++i) max_b = std::max(max_b, std::fabs(values[static_cast<std::size_t>(i)]));
+    const int rows = std::min(n, 2000);
+    auto sampled_residual = [&](const std::vector<double>& w) {
+        std::vector<double> res(static_cast<std::size_t>(rows), 0.0);   // per row, then a serial max (OpenMP 2.0 / MSVC)
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+        for (int q = 0; q < rows; ++q) {
+            const int i = static_cast<int>(static_cast<long long>(q) * n / rows);
+            const auto& ci = centers_[static_cast<std::size_t>(i)];
+            double acc = 0.0;
+            for (int j = 0; j < n; ++j) acc += fk(fast_distance(ci, centers_[static_cast<std::size_t>(j)])) * w[static_cast<std::size_t>(j)];
+            acc += op_cfg.regularization * w[static_cast<std::size_t>(i)];
+            double pb[4] = {0.0, 0.0, 0.0, 0.0};
+            poly_basis(poly_dim, ci, pb);
+            for (int k = 0; k < poly_dim; ++k) acc += w[static_cast<std::size_t>(n + k)] * pb[k];
+            res[static_cast<std::size_t>(q)] = std::fabs(acc - values[static_cast<std::size_t>(i)]);
+        }
+        double max_res = 0.0;
+        for (double r : res) max_res = std::max(max_res, r);
+        return max_b > 0.0 ? max_res / max_b : max_res;
+    };
+
     std::vector<double> x(aug_dim, 0.0);
     std::string gmres_status;
+    bool ok = gmres_solve(aug_dim, A, rhs, x, gcfg, gmres_status, M);
+    const auto t_solve = std::chrono::steady_clock::now();
+    double rel = ok ? sampled_residual(x) : std::numeric_limits<double>::infinity();
+    const auto t_check = std::chrono::steady_clock::now();
 
-    const bool ok = gmres_solve(aug_dim, A, rhs, x, gcfg, gmres_status, M);
+    if (want_h) {
+        const auto& st = op->hmatrix()->stats();
+        iterative_info_["hmatrix_tol"] = hopt.tol;
+        iterative_info_["hmatrix_build_s"] = st.build_seconds;
+        iterative_info_["hmatrix_lowrank_mb"] = st.lowrank_mb;
+        iterative_info_["hmatrix_near_mb"] = st.near_mb;
+        iterative_info_["hmatrix_near_stored"] = st.near_stored ? 1.0 : 0.0;
+        iterative_info_["hmatrix_max_rank"] = st.max_rank;
+        iterative_info_["hmatrix_mean_rank"] = st.mean_rank;
+        iterative_info_["hmatrix_compression"] = st.compression;
+        iterative_info_["hmatrix_sampled_rel_residual"] = rel;
+    }
+    iterative_info_["hmatrix"] = want_h ? 1.0 : 0.0;
+    iterative_info_["hmatrix_fallback"] = 0.0;
+    iterative_info_["gmres_restart"] = gcfg.restart;
+    iterative_info_["preconditioner_hybrid"] = hybrid ? 1.0 : 0.0;
+    iterative_info_["operator_setup_s"] = secs(t_start, t_op);
+    iterative_info_["preconditioner_setup_s"] = secs(t_op, t_pre);
+    iterative_info_["gmres_s"] = secs(t_pre, t_solve);
+    iterative_info_["check_s"] = secs(t_solve, t_check);
+
+    // Fallback: H-matrix solution not accurate enough against the exact matrix (or GMRES failed with it): solve again
+    // with the exact product and the additive preconditioner, starting from the H-matrix solution when there is one.
+    double b2 = 0.0;
+    for (int i = 0; i < n; ++i) b2 += values[static_cast<std::size_t>(i)] * values[static_cast<std::size_t>(i)];
+    // GMRES stops on the 2-norm, the check uses the max norm: never ask for more than an exact solve guarantees.
+    const double check_limit = std::max(HMATRIX_CHECK_REL_RESIDUAL,
+                                        max_b > 0.0 ? 10.0 * gcfg.tol * std::sqrt(b2) / max_b : 0.0);
+    iterative_info_["hmatrix_check_limit"] = check_limit;
+    if (want_h && !(rel <= check_limit)) {
+        op = std::make_unique<RBFMatrixFreeOperator>(centers, op_cfg);
+        hybrid = false;
+        gcfg.restart = gmres_restart_;
+        if (!ok) x.assign(static_cast<std::size_t>(aug_dim), 0.0);
+        ok = gmres_solve(aug_dim, A, rhs, x, gcfg, gmres_status, M);
+        iterative_info_["hmatrix_fallback"] = 1.0;
+        iterative_info_["fallback_s"] = secs(t_check, std::chrono::steady_clock::now());
+        if (ok) rel = sampled_residual(x);
+    }
     if (!ok)
         throw std::runtime_error("fit_iterative(): GMRES failed to converge: " + gmres_status);
+
+    iterative_info_["products"] = n_products;
+    iterative_info_["sampled_rows"] = rows;
+    iterative_info_["sampled_rel_residual"] = rel;
 
     weights_ = std::move(x);
     fitted_ = true;
 
-    solver_backend_ = "iterative_augmented_" + Aop.backend_name() +
+    const bool h_final = want_h && iterative_info_["hmatrix_fallback"] == 0.0;
+    solver_backend_ = std::string("iterative_augmented_") + (h_final ? "hmatrix_aca" : op->backend_name()) +
+                      (iterative_info_["hmatrix_fallback"] == 1.0 ? "_after_hmatrix_check" : "") +
                       "_gmres_ddm_levels=" + std::to_string(preconditioner.has_coarse_level() ? 2 : 1) +
-                      "_blocks=" + std::to_string(preconditioner.n_local_blocks());
+                      "_blocks=" + std::to_string(preconditioner.n_local_blocks()) +
+                      (h_final ? "_hybrid" : "");
 
     scalfmm_status_ = deeprbf_scalfmm_runtime_status();
 }
@@ -938,7 +1105,7 @@ std::vector<double> NativeExactRBFImplicitModel::predict(
 #endif
     last_predict_backend_ = used;
 
-    const ResolvedKernel kern = resolve_kernel(kernel_, epsilon_);
+    const FastKernel kern(kernel_, epsilon_, bbox_diagonal(centers_, &points));   // 3.5.0: tabulated kernel
 #if defined(_OPENMP)
 #pragma omp parallel for schedule(static)
 #endif
@@ -946,7 +1113,7 @@ std::vector<double> NativeExactRBFImplicitModel::predict(
         double v = 0.0;
         const auto& p = points[static_cast<std::size_t>(i)];
         for (int j = 0; j < n; ++j) {
-            const double r = distance3(p, centers_[static_cast<std::size_t>(j)]);
+            const double r = fast_distance(p, centers_[static_cast<std::size_t>(j)]);
             v += lambda[static_cast<std::size_t>(j)] * kern(r);
         }
         double pb[4] = {0.0, 0.0, 0.0, 0.0};

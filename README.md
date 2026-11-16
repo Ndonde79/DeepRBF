@@ -5,7 +5,8 @@ DeepRBF is a C++ engine with a Python interface for implicit geological modellin
 
 - **Implicit modelling:** exact RBF interpolation with a linear drift (Gaussian, linear, cubic, thin-plate,
   multiquadric kernels), dense or iterative (GMRES with a two-level domain-decomposition preconditioner) solvers,
-  contact-based ore shells, paired lens surfaces and categorical (domain) probability models.
+  a hierarchical (H-matrix/ACA) product for large fits with long-tailed kernels (3.5.0), contact-based ore shells,
+  paired lens surfaces and categorical (domain) probability models.
 - **Geostatistics:** variograms and cross-variograms, ordinary and block kriging, co-kriging with a linear model
   of coregionalisation, indicator kriging and sequential indicator simulation, truncated (pluri-)Gaussian
   simulation with Gibbs conditioning, SNESIM multiple-point simulation, change of support.
@@ -13,7 +14,7 @@ DeepRBF is a C++ engine with a Python interface for implicit geological modellin
   evaluations, OpenMP throughout.
 - **SVGP** (`deeprbf.svgp`, optional PyTorch): sparse variational Gaussian processes for ore shells and grades.
 
-Version 3.4.2. The first public source release was 3.4.0. See [CHANGELOG.md](CHANGELOG.md).
+Version 3.5.0. The first public source release was 3.4.0. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Documentation
 
@@ -28,8 +29,8 @@ Python 3.11 on 64-bit Windows: download the wheel from the
 [latest release](https://github.com/Ndonde79/DeepRBF/releases/latest), check it against `SHA256SUMS`, and install it.
 
 ```
-certutil -hashfile deepfusion_deeprbf-3.4.2-cp311-cp311-win_amd64.whl SHA256
-pip install "deepfusion_deeprbf-3.4.2-cp311-cp311-win_amd64.whl[workflow]"
+certutil -hashfile deepfusion_deeprbf-3.5.0-cp311-cp311-win_amd64.whl SHA256
+pip install "deepfusion_deeprbf-3.5.0-cp311-cp311-win_amd64.whl[workflow]"
 ```
 
 The `workflow` extra adds scikit-image for the grade-shell workflow. The release wheel is portable: OpenMP only,
@@ -105,8 +106,8 @@ If you use DeepRBF, please cite the software release (metadata in [CITATION.cff]
 "Cite this repository" button gives APA and BibTeX):
 
 > Ndonde, R. W. (2026). *DeepRBF: implicit geological modelling and geostatistics with radial basis functions*
-> (Version 3.4.2) [Computer software]. DeepFusion Geoscience Limited. https://github.com/Ndonde79/DeepRBF
+> (Version 3.5.0) [Computer software]. DeepFusion Geoscience Limited. https://github.com/Ndonde79/DeepRBF
 
-A software paper describing DeepRBF is in preparation for *Computers & Geosciences*.
+A software paper describing DeepRBF (release 3.4.2) has been submitted to *Computers & Geosciences*.
 
 Models built with DeepRBF are drafts for Competent Person review.

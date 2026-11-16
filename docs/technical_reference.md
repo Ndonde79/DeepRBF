@@ -1,6 +1,6 @@
 ---
 title: "DeepRBF Technical Reference Manual"
-subtitle: "Version 3.4.2"
+subtitle: "Version 3.5.0"
 author: "Ramadhani W. Ndonde, DeepFusion Geoscience Limited"
 date: "November 2026"
 ---
@@ -20,7 +20,7 @@ Everything stated here was checked against release 3.4.2 (Python package `deeprb
 
 | Layer | Content |
 |---|---|
-| Native core (C++20, Eigen 3.4, OpenMP) | RBF model, kernels, dense, iterative and sparse solvers, compact-support neighbour grid, kriging, simulation, variograms |
+| Native core (C++20, Eigen 3.4, OpenMP) | RBF model, kernels (tabulated evaluation, `kernel_table.hpp`), dense, iterative and sparse solvers, H-matrix/ACA product (`hmatrix.hpp`), compact-support neighbour grid, kriging, simulation, variograms |
 | Bindings (pybind11) | module `deeprbf_recovered`, built from `src/bindings.cpp` |
 | Python package `deeprbf` | grade-shell workflow (`deeprbf.workflow`), lithology, categorical and simulation helpers, I/O |
 | Optional | Intel oneMKL (dense solves), ScalFMM 3 (fast multipole evaluation of Gaussian sums), PyTorch (`deeprbf.svgp`) |
@@ -102,7 +102,8 @@ fitting.
 |--------|----------------------|-------------|
 | Dense LU | `dense_augmented_eigen_partial_pivot_lu` | $n \le$ dense limit and memory within budget (default) |
 | Sparse LDLᵀ + Schur complement | `sparse_cholesky_schur` | compact kernel (`spherical`) and the dense limits exceeded, or forced |
-| GMRES, two-level Schwarz | `iterative_..._gmres_ddm_levels=2_blocks=<k>` | non-compact kernel beyond the dense limits, or forced |
+| GMRES, two-level Schwarz | `iterative_augmented_direct_openmp_gmres_ddm_levels=2_blocks=<k>` | non-compact kernel beyond the dense limits, or forced |
+| GMRES with H-matrix product (3.5.0) | `iterative_augmented_hmatrix_aca_gmres_ddm_levels=2_blocks=<k>_hybrid` | as GMRES, $n \ge 4000$, and a finitely smooth kernel (`gen_cauchy`, `exponential`, `linear`, `cubic`, `thin_plate`) |
 
 **Dense.** Partial-pivot LU of the augmented matrix (Eigen, or oneMKL when built with it), with a full-pivot LU
 fallback if the partial-pivot solve is inaccurate. The dense limits are $n \le 8000$
@@ -119,6 +120,60 @@ through the Schur complement $P^{\mathsf T} (\Phi + \rho I)^{-1} P$. `sparse_sol
 (overlapping local blocks plus a coarse level). Defaults: restart 150, at most 3000 iterations, relative tolerance
 $10^{-6}$ (`set_iterative_solver(restart, max_iter, tol)`). The full backend name is
 `iterative_augmented_direct_openmp_gmres_ddm_levels=2_blocks=<k>`, with k the number of local blocks. `force_iterative_solver(True)` forces it.
+
+**Kernel evaluation (3.5.0).** In the $O(n^2)$ loops (dense assembly, the exact matrix-free product, prediction)
+each kernel except `linear`, `cubic` and `spherical`, which are cheap in closed form, is evaluated from a table: the
+distance, scaled by $\varepsilon$ (or by the generalised Cauchy scale $b$), is split into geometric bands
+$[2^e, 2^{e+1})$ of 32 cells, each with a degree-6 polynomial interpolant at Chebyshev nodes. Geometric bands keep the
+error uniform near $r = 0$, where $r^p$ ($p < 2$), $|r|$ and $r^2 \log r$ are not smooth. The table is checked against
+the closed form when it is built (relative error $\le 10^{-13}$; in practice a few units in the last place) and is
+discarded in favour of the closed form if any check fails. It makes these loops 3 to 4 times faster with no change
+to the results. `kernel_table_check(kernel, epsilon, d_max)` reports the table's error on random distances.
+
+**H-matrix product (3.5.0).** For large iterative fits the product $\Phi \lambda$ is computed from a hierarchical
+approximation of $\Phi$. The centres are ordered by a k-d cluster tree (bisection of the longest box side at the
+median; leaves of at most 64 points). A pair of clusters $(t, s)$ with
+$\min(\operatorname{diam} t, \operatorname{diam} s) \le \eta \operatorname{dist}(t, s)$, $\eta = 1.5$, is
+compressed to $U V^{\mathsf T}$ by adaptive cross approximation with partial pivoting to a tolerance of $10^{-9}$
+relative to the block, then recompressed by QR and a truncated SVD. Before accepting convergence ACA checks the 8 rows
+and 8 columns farthest from all pivots so far and 8 random ones of each; this catches the separate drillhole pieces
+and isolated samples that partial pivoting alone can miss. Blocks that are not admissible down to the leaves are
+evaluated exactly: stored if they fit in 2048 MB, recomputed on every product otherwise. The product then costs about
+$O(n \log n)$; its relative error is about $10^{-9}$ for all kernels on drillhole data.
+
+With the H-matrix the Schwarz preconditioner is applied in hybrid (multiplicative) form: coarse correction, residual
+update with one product, local blocks on the remainder. The coarse level grows from 2,000 to 4,000 centres (blocked
+partial-pivot LU) and the GMRES restart to $\min(500, 512\,\text{MB} / (16 (n+m)))$ vectors.
+
+*Exact check and fallback.* After the solve, the residual $|(\Phi + \rho I)\lambda + P c - f|$ is computed exactly
+(closed-form kernel sum) on 2,000 evenly spaced rows. If its maximum exceeds $\max(10^{-4},
+10\,\mathrm{tol}\,\|f\|_2 / \|f\|_\infty) \cdot \|f\|_\infty$, or GMRES fails, the solve is repeated with the exact
+product and the additive preconditioner, starting from the H-matrix solution; the backend name then contains
+`after_hmatrix_check`. The Gaussian, multiquadric and inverse multiquadric kernels give very ill-conditioned systems at
+practical shape parameters, where the product error is amplified by large weights; `auto` therefore keeps the exact
+product for them.
+
+`set_hmatrix(mode, tol=1e-9, eta=1.5, leaf_size=64, near_memory_mb=2048)` sets `auto` (default), `on` (always in the
+iterative path) or `off`. `iterative_info()` returns a dictionary for the last iterative fit: `products`, the set-up,
+GMRES and check times, `gmres_restart`, `preconditioner_hybrid`, `sampled_rows`, `sampled_rel_residual`
+($\max |r_i| / \max |f_i|$), `hmatrix`, `hmatrix_fallback`, and with the H-matrix its build time, memory, ranks,
+compression and `hmatrix_sampled_rel_residual`.
+
+*Timings (24-thread Windows workstation, 63 GB, release wheel; generalised Cauchy, drillhole-like data, constant
+drift).* 8,000 centres: dense 12.2 s; 3.4.2 exact product 23.0 s; 3.5.0 exact product 6.8 s; 3.5.0 H-matrix 2.0 s.
+H-matrix at 20,000 centres 10.2 s, 40,000 centres 42 s, 80,000 centres 182 s (658 GMRES iterations). Predictions
+differ from the dense solve by $3.7 \times 10^{-6}$ of their range. The Kilamongo indicator shell with `gen_cauchy`
+(17,958 composites, model fitted and evaluated on a 2 m grid of 4.5 million nodes) takes 255 s end to end; it did not
+converge before the preconditioner fix below. GMRES iterations still grow with $n$; a more scalable preconditioner is
+future work. Benchmark B7 in `benchmarks/bench_deeprbf.py` measures dense, exact-product and H-matrix fits up to
+80,000 centres.
+
+The coarse level and the local blocks are checked once, by a test solve when the preconditioner is built (relative
+residual $10^{-6}$); before 3.5.0 they were re-checked on every application, which made the preconditioner vary
+between GMRES iterations on ill-conditioned blocks and stalled the solver.
+
+*Limitation.* With the `cubic` kernel and with wide Gaussian shapes, GMRES may fail to converge in the iterative path
+(also in 3.4.2); use the dense solver within its limits, a compactly supported kernel, or `fit_with_reduction`.
 
 The solver controls are static: they apply to all models created afterwards in the process.
 
@@ -361,8 +416,14 @@ print(m.solver_backend(), m.last_predict_backend(), m.n_centers())
 | static `set_dense_direct_limit(n)`, `set_dense_memory_limit_mb(mb)` | dense thresholds (8000, 1024 MB) |
 | static `set_sparse_solver(force)`, `sparse_solver_forced()` | force sparse path for compact kernels |
 | static `force_iterative_solver(force)`, `set_iterative_solver(restart=150, max_iter=3000, tol=1e-6)` | iterative solver |
+| static `set_hmatrix(mode, tol=1e-9, eta=1.5, leaf_size=64, near_memory_mb=2048)`, `hmatrix_mode()` | H-matrix product in the iterative solver (3.5.0) |
+| `iterative_info()` | statistics and exact residual check of the last iterative fit (3.5.0) |
+| `weights()` | fitted coefficients: $n$ kernel weights, then the drift coefficients (3.5.0) |
 
-Module functions: `kernel_value`, `set_openmp_threads(n)` (returns `False` without OpenMP),
+`HMatrix(points, kernel, epsilon, tol=1e-9, eta=1.5, leaf_size=64, near_memory_mb=2048)` exposes the H-matrix on its
+own: `apply(x)` returns $\Phi x$ (no regularisation), `stats()` its block counts, ranks, memory and build time.
+
+Module functions: `kernel_value`, `kernel_table_check`, `set_openmp_threads(n)` (returns `False` without OpenMP),
 `get_openmp_threads()`, `deeprbf_scalfmm_runtime_status()`, `deeprbf_scalfmm_diagnostics()`, `__version__`.
 
 Other model classes in the module (not covered in the paper): `NativeGeologicalImplicitModel`,
@@ -416,10 +477,10 @@ Linux (GCC 13).
 
 # Testing
 
-`ctest` runs 19 native tests, including a numerical regression test. `python -m pytest tests` runs 271 Python
+`ctest` runs 19 native tests, including a numerical regression test. `python -m pytest tests` runs 280 Python
 tests with the built module on `PYTHONPATH`; `test_svgp.py` needs PyTorch and Windows-only bootstrap tests skip
 elsewhere. `benchmarks/` holds the scripts and raw results behind the paper's timing and accuracy figures
-(`bench_deeprbf.py` B0–B6, `bench_geostats.py` G1–G3).
+(`bench_deeprbf.py` B0–B7, `bench_geostats.py` G1–G3).
 
 # Versioning
 
@@ -433,7 +494,8 @@ Zenodo with its own DOI.
 |---|---|
 | 3.4.0 | first public source release (DOI 10.5281/zenodo.24232967) |
 | 3.4.1 | signed-distance example uses a constant drift; Windows-only test skipped elsewhere (DOI 10.5281/zenodo.24241552) |
-| 3.4.2 | regularisation sign fixed for the linear and multiquadric kernels; B3/B5 benchmark additions; these manuals |
+| 3.4.2 | regularisation sign fixed for the linear and multiquadric kernels; B3/B5 benchmark additions; these manuals (DOI 10.5281/zenodo.24246601) |
+| 3.5.0 | tabulated kernel evaluation; H-matrix/ACA product with hybrid preconditioner and exact residual check; benchmark B7 |
 
 # References
 
