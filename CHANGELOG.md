@@ -1,5 +1,39 @@
 # Changelog
 
+## 3.5.1 — 2026-11-23
+
+Iterative fits that stalled in 3.5.0 now converge: cubic, multiquadric and Gaussian kernels on drillhole data.
+
+- **Symmetric two-level preconditioner.** New form for the Schwarz preconditioner of the iterative solver: coarse
+  correction, local blocks on the updated residual, then a second coarse correction (two extra products per
+  iteration). With the 3.5.0 forms the coarse and local solutions of the same residual partly cancel for kernels
+  that grow with distance or are nearly flat over a few hole spacings, and GMRES stalled. Drillhole-like data (holes
+  25 m apart, 2 m samples), 24-thread Windows workstation:
+
+  | kernel, solver, centres | 3.5.0 | 3.5.1 |
+  |---|---|---|
+  | cubic, exact product, 4,000 | 3.7 s | 2.0 s |
+  | cubic, H-matrix, 10,000 | no convergence (190 s) | 7.8 s |
+  | cubic, H-matrix, 20,000 | – | 14.7 s |
+  | multiquadric, exact product, 4,000 | no convergence (46 s) | 13.1 s |
+  | Gaussian (ε = 50 m), exact product, 3,000 | no convergence (25 s) | 58 s |
+
+  3.5.1 predictions agree with the dense solve to 1e-5 of their range. On the 3-D Franke function with 8,000
+  uniform points (benchmark B1), the cubic kernel now fits in 3.5 s (0.024 % relative RMSE; it did not converge
+  in 3.3.3–3.5.0).
+- `set_preconditioner_form(form)` / `preconditioner_form()`: `"auto"` (default: symmetric for cubic, Gaussian,
+  multiquadric and inverse multiquadric, the 3.5.0 form otherwise), `"symmetric"`, `"hybrid"`, `"additive"`
+  (`"additive"` reproduces 3.5.0). The backend name ends in `_symmetric` when the symmetric form is used;
+  `iterative_info()` adds `preconditioner_symmetric`.
+- Unchanged: linear, thin-plate, exponential, generalised Cauchy and spherical fits give the same predictions as
+  3.5.0 (the 3.5.0 forms are 10–40 % faster for these kernels, so they are kept); the Kilamongo signed-distance shell
+  is unchanged (775,693 m³).
+- Tests: `tests/test_preconditioner_form.py` (284 tests pass).
+- Known limitation: near-flat multiquadric and Gaussian shapes on uniformly scattered points remain too
+  ill-conditioned for the iterative path (Franke function, 8,000 points: GMRES stops at the iteration limit with
+  residuals of 3.5 % and 6.8 %). Use the dense solver within its limits (raise `set_dense_memory_limit_mb`), a
+  compactly supported kernel, or `fit_with_reduction`.
+
 ## 3.5.0 — 15 November 2026
 
 Faster fits with long-tailed kernels. Results within the dense limits are unchanged apart from rounding (about 1e-15).

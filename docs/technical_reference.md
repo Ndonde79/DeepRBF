@@ -1,6 +1,6 @@
 ---
 title: "DeepRBF Technical Reference Manual"
-subtitle: "Version 3.5.0"
+subtitle: "Version 3.5.1"
 author: "Ramadhani W. Ndonde, DeepFusion Geoscience Limited"
 date: "November 2026"
 ---
@@ -103,7 +103,7 @@ fitting.
 | Dense LU | `dense_augmented_eigen_partial_pivot_lu` | $n \le$ dense limit and memory within budget (default) |
 | Sparse LDLᵀ + Schur complement | `sparse_cholesky_schur` | compact kernel (`spherical`) and the dense limits exceeded, or forced |
 | GMRES, two-level Schwarz | `iterative_augmented_direct_openmp_gmres_ddm_levels=2_blocks=<k>` | non-compact kernel beyond the dense limits, or forced |
-| GMRES with H-matrix product (3.5.0) | `iterative_augmented_hmatrix_aca_gmres_ddm_levels=2_blocks=<k>_hybrid` | as GMRES, $n \ge 4000$, and a finitely smooth kernel (`gen_cauchy`, `exponential`, `linear`, `cubic`, `thin_plate`) |
+| GMRES with H-matrix product (3.5.0) | `iterative_augmented_hmatrix_aca_gmres_ddm_levels=2_blocks=<k>_hybrid` (`_symmetric` for `cubic`, 3.5.1) | as GMRES, $n \ge 4000$, and a finitely smooth kernel (`gen_cauchy`, `exponential`, `linear`, `cubic`, `thin_plate`) |
 
 **Dense.** Partial-pivot LU of the augmented matrix (Eigen, or oneMKL when built with it), with a full-pivot LU
 fallback if the partial-pivot solve is inaccurate. The dense limits are $n \le 8000$
@@ -148,14 +148,14 @@ partial-pivot LU) and the GMRES restart to $\min(500, 512\,\text{MB} / (16 (n+m)
 *Exact check and fallback.* After the solve, the residual $|(\Phi + \rho I)\lambda + P c - f|$ is computed exactly
 (closed-form kernel sum) on 2,000 evenly spaced rows. If its maximum exceeds $\max(10^{-4},
 10\,\mathrm{tol}\,\|f\|_2 / \|f\|_\infty) \cdot \|f\|_\infty$, or GMRES fails, the solve is repeated with the exact
-product and the additive preconditioner, starting from the H-matrix solution; the backend name then contains
+product (and the same preconditioner form; additive for the 3.5.0 form), starting from the H-matrix solution; the backend name then contains
 `after_hmatrix_check`. The Gaussian, multiquadric and inverse multiquadric kernels give very ill-conditioned systems at
 practical shape parameters, where the product error is amplified by large weights; `auto` therefore keeps the exact
 product for them.
 
 `set_hmatrix(mode, tol=1e-9, eta=1.5, leaf_size=64, near_memory_mb=2048)` sets `auto` (default), `on` (always in the
 iterative path) or `off`. `iterative_info()` returns a dictionary for the last iterative fit: `products`, the set-up,
-GMRES and check times, `gmres_restart`, `preconditioner_hybrid`, `sampled_rows`, `sampled_rel_residual`
+GMRES and check times, `gmres_restart`, `preconditioner_hybrid`, `preconditioner_symmetric` (3.5.1), `sampled_rows`, `sampled_rel_residual`
 ($\max |r_i| / \max |f_i|$), `hmatrix`, `hmatrix_fallback`, and with the H-matrix its build time, memory, ranks,
 compression and `hmatrix_sampled_rel_residual`.
 
@@ -172,8 +172,23 @@ The coarse level and the local blocks are checked once, by a test solve when the
 residual $10^{-6}$); before 3.5.0 they were re-checked on every application, which made the preconditioner vary
 between GMRES iterations on ill-conditioned blocks and stalled the solver.
 
-*Limitation.* With the `cubic` kernel and with wide Gaussian shapes, GMRES may fail to converge in the iterative path
-(also in 3.4.2); use the dense solver within its limits, a compactly supported kernel, or `fit_with_reduction`.
+*Preconditioner form (3.5.1).* The two-level preconditioner can be applied in three ways: additive,
+$z = C r + L r$ (3.5.0, exact product); hybrid, $z = C r$ then $z \mathrel{+}= L (r - A z)$ (3.5.0, H-matrix); and
+symmetric, the hybrid step followed by a second coarse correction $z \mathrel{+}= C (r - A z)$, at two extra products
+per iteration. For kernels that grow with distance or are nearly flat over a few hole spacings, the coarse and local
+solutions of the same residual partly cancel in the first two forms and GMRES stalls; the symmetric form converges.
+On drillhole-like data (24-thread workstation): cubic, 4,000 centres, 3.7 s with the 3.5.0 form and 2.0 s with the
+symmetric form; cubic, 10,000 centres with the H-matrix, no convergence in 190 s and 7.8 s; multiquadric, 4,000
+centres, no convergence in 46 s and 13.1 s; Gaussian ($\varepsilon$ = 50 m), 3,000 centres, no convergence and 58 s. For the linear, thin-plate, exponential and generalised
+Cauchy kernels the 3.5.0 forms are 10--40 % faster. `set_preconditioner_form(form)` chooses `auto` (default: symmetric
+for `cubic`, `gaussian`, `multiquadric` and `inverse_multiquadric`, the 3.5.0 form otherwise), `symmetric`, `hybrid`
+or `additive` (the 3.5.0 behaviour); `iterative_info()` reports `preconditioner_symmetric`, and the backend name ends
+in `_symmetric`.
+
+*Limitation.* Near-flat multiquadric and Gaussian shapes on uniformly scattered points remain too ill-conditioned
+for the iterative path (condition numbers near $10^{9}$ at $\nu = 10^{-6}$; on the 3-D Franke function with 8,000
+points GMRES stops at the iteration limit). Use the dense solver within its limits, a compactly supported kernel, or
+`fit_with_reduction`.
 
 The solver controls are static: they apply to all models created afterwards in the process.
 

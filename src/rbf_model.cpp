@@ -551,6 +551,13 @@ std::string NativeExactRBFImplicitModel::predict_backend() { return predict_back
 
 bool NativeExactRBFImplicitModel::force_sparse_ = false;
 std::string NativeExactRBFImplicitModel::hmatrix_mode_ = "auto";
+std::string NativeExactRBFImplicitModel::preconditioner_form_ = "auto";
+void NativeExactRBFImplicitModel::set_preconditioner_form(const std::string& form) {
+    if (form != "auto" && form != "symmetric" && form != "hybrid" && form != "additive")
+        throw std::invalid_argument("set_preconditioner_form: form must be \"auto\", \"symmetric\", \"hybrid\" or \"additive\"");
+    preconditioner_form_ = form;
+}
+std::string NativeExactRBFImplicitModel::preconditioner_form() { return preconditioner_form_; }
 double NativeExactRBFImplicitModel::hmatrix_tol_ = 1.0e-9;
 double NativeExactRBFImplicitModel::hmatrix_eta_ = 1.5;
 double NativeExactRBFImplicitModel::hmatrix_near_mb_ = 2048.0;
@@ -782,18 +789,35 @@ void NativeExactRBFImplicitModel::fit_iterative(
     TwoLevelDDMPreconditioner preconditioner(centers_, kernel_, epsilon_, op_cfg.regularization, ddm_cfg, poly_dim);
     const auto t_pre = std::chrono::steady_clock::now();
 
-    // 3.5.0: hybrid (multiplicative) two-level form when the product is cheap (H-matrix): coarse correction, residual
-    // update with one product, then the local blocks on what is left. The additive form is kept for the exact product.
-    bool hybrid = want_h;
-    ApplyPreconditionerFn M = [&preconditioner, &A, &hybrid, aug_dim](const std::vector<double>& r_aug,
+    // Two-level forms. additive (3.5.0, exact product): z = C r + L r. hybrid (3.5.0, H-matrix): z = C r, then
+    // z += L (r - A z). 3.5.1 default, symmetric: coarse, local, coarse again, z += C (r - A z). The additive form
+    // stalled on the cubic kernel and on Gaussian shapes of a few hole spacings, where coarse and local solutions of
+    // the same residual cancel; the symmetric form converges there and needs fewer iterations for every kernel tested
+    // (two extra products per iteration, still fewer products in total).
+    // auto: symmetric for the kernels whose 3.5.0 iterative fits stalled (cubic, Gaussian, multiquadric, inverse
+    // multiquadric); the 3.5.0 form (additive with the exact product, hybrid with the H-matrix) otherwise, where it
+    // is 10-40 % faster than the symmetric form.
+    const bool stalls_350 = kernel_ == "cubic" || kernel_ == "biharmonic" || kernel_ == "gaussian" ||
+                            kernel_ == "multiquadric" || kernel_ == "inverse_multiquadric";
+    const std::string& form = preconditioner_form_ == "auto" ? (stalls_350 ? std::string("symmetric") : std::string("additive"))
+                                                             : preconditioner_form_;
+    int pform = form == "symmetric" ? 2 : (form == "hybrid" ? 1 : 0);
+    if (form == "additive" && want_h) pform = 1;   // 3.5.0 behaviour
+    bool hybrid = pform > 0;
+    ApplyPreconditionerFn M = [&preconditioner, &A, &hybrid, &pform, aug_dim](const std::vector<double>& r_aug,
                                                 std::vector<double>& z_aug) {
         if (!hybrid) { preconditioner.apply(r_aug, z_aug); return; }
-        z_aug.assign(static_cast<std::size_t>(aug_dim), 0.0);
+        const std::size_t na = static_cast<std::size_t>(aug_dim);
+        z_aug.assign(na, 0.0);
         preconditioner.add_coarse(r_aug, z_aug);
-        std::vector<double> az, r2(static_cast<std::size_t>(aug_dim));
+        std::vector<double> az, r2(na);
         A(z_aug, az);
-        for (int i = 0; i < aug_dim; ++i) r2[static_cast<std::size_t>(i)] = r_aug[static_cast<std::size_t>(i)] - az[static_cast<std::size_t>(i)];
+        for (std::size_t i = 0; i < na; ++i) r2[i] = r_aug[i] - az[i];
         preconditioner.add_local(r2, z_aug);
+        if (pform < 2 || !preconditioner.has_coarse_level()) return;
+        A(z_aug, az);
+        for (std::size_t i = 0; i < na; ++i) r2[i] = r_aug[i] - az[i];
+        preconditioner.add_coarse(r2, z_aug);
     };
 
     GMRESConfig gcfg;
@@ -855,13 +879,14 @@ void NativeExactRBFImplicitModel::fit_iterative(
     iterative_info_["hmatrix_fallback"] = 0.0;
     iterative_info_["gmres_restart"] = gcfg.restart;
     iterative_info_["preconditioner_hybrid"] = hybrid ? 1.0 : 0.0;
+    iterative_info_["preconditioner_symmetric"] = (hybrid && pform == 2) ? 1.0 : 0.0;
     iterative_info_["operator_setup_s"] = secs(t_start, t_op);
     iterative_info_["preconditioner_setup_s"] = secs(t_op, t_pre);
     iterative_info_["gmres_s"] = secs(t_pre, t_solve);
     iterative_info_["check_s"] = secs(t_solve, t_check);
 
     // Fallback: H-matrix solution not accurate enough against the exact matrix (or GMRES failed with it): solve again
-    // with the exact product and the additive preconditioner, starting from the H-matrix solution when there is one.
+    // with the exact product (3.5.1: same preconditioner form; additive if requested), starting from the H-matrix solution when there is one.
     double b2 = 0.0;
     for (int i = 0; i < n; ++i) b2 += values[static_cast<std::size_t>(i)] * values[static_cast<std::size_t>(i)];
     // GMRES stops on the 2-norm, the check uses the max norm: never ask for more than an exact solve guarantees.
@@ -870,7 +895,7 @@ void NativeExactRBFImplicitModel::fit_iterative(
     iterative_info_["hmatrix_check_limit"] = check_limit;
     if (want_h && !(rel <= check_limit)) {
         op = std::make_unique<RBFMatrixFreeOperator>(centers, op_cfg);
-        hybrid = false;
+        hybrid = pform == 2;   // 3.5.1: the symmetric form is kept for the exact-product retry, otherwise additive
         gcfg.restart = gmres_restart_;
         if (!ok) x.assign(static_cast<std::size_t>(aug_dim), 0.0);
         ok = gmres_solve(aug_dim, A, rhs, x, gcfg, gmres_status, M);
@@ -893,7 +918,7 @@ void NativeExactRBFImplicitModel::fit_iterative(
                       (iterative_info_["hmatrix_fallback"] == 1.0 ? "_after_hmatrix_check" : "") +
                       "_gmres_ddm_levels=" + std::to_string(preconditioner.has_coarse_level() ? 2 : 1) +
                       "_blocks=" + std::to_string(preconditioner.n_local_blocks()) +
-                      (h_final ? "_hybrid" : "");
+                      (hybrid ? (pform == 2 ? "_symmetric" : "_hybrid") : "");
 
     scalfmm_status_ = deeprbf_scalfmm_runtime_status();
 }

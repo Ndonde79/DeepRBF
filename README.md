@@ -14,7 +14,7 @@ DeepRBF is a C++ engine with a Python interface for implicit geological modellin
   evaluations, OpenMP throughout.
 - **SVGP** (`deeprbf.svgp`, optional PyTorch): sparse variational Gaussian processes for ore shells and grades.
 
-Version 3.5.0. The first public source release was 3.4.0. See [CHANGELOG.md](CHANGELOG.md).
+Version 3.5.1. The first public source release was 3.4.0. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Documentation
 
@@ -29,8 +29,8 @@ Python 3.11 on 64-bit Windows: download the wheel from the
 [latest release](https://github.com/Ndonde79/DeepRBF/releases/latest), check it against `SHA256SUMS`, and install it.
 
 ```
-certutil -hashfile deepfusion_deeprbf-3.5.0-cp311-cp311-win_amd64.whl SHA256
-pip install "deepfusion_deeprbf-3.5.0-cp311-cp311-win_amd64.whl[workflow]"
+certutil -hashfile deepfusion_deeprbf-3.5.1-cp311-cp311-win_amd64.whl SHA256
+pip install "deepfusion_deeprbf-3.5.1-cp311-cp311-win_amd64.whl[workflow]"
 ```
 
 The `workflow` extra adds scikit-image for the grade-shell workflow. The release wheel is portable: OpenMP only,
@@ -106,7 +106,7 @@ If you use DeepRBF, please cite the software release (metadata in [CITATION.cff]
 "Cite this repository" button gives APA and BibTeX):
 
 > Ndonde, R. W. (2026). *DeepRBF: implicit geological modelling and geostatistics with radial basis functions*
-> (Version 3.5.0) [Computer software]. DeepFusion Geoscience Limited. https://github.com/Ndonde79/DeepRBF
+> (Version 3.5.1) [Computer software]. DeepFusion Geoscience Limited. https://github.com/Ndonde79/DeepRBF
 
 A software paper describing DeepRBF (release 3.4.2) has been submitted to *Computers & Geosciences*.
 

@@ -1,6 +1,6 @@
 ---
 title: "DeepRBF User Guide"
-subtitle: "Grade shells and geostatistics from drillhole data. Version 3.5.0"
+subtitle: "Grade shells and geostatistics from drillhole data. Version 3.5.1"
 author: "Ramadhani W. Ndonde, DeepFusion Geoscience Limited"
 date: "November 2026"
 ---

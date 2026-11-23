@@ -46,7 +46,7 @@ option(DEEPRBF_USE_NANOFLANN   "Use bundled nanoflann KD-tree header"   OFF)
 # -----------------------------------------------------------------------------
 set(DEEPRBF_VERSION_MAJOR 3)
 set(DEEPRBF_VERSION_MINOR 5)
-set(DEEPRBF_VERSION_PATCH 0)
+set(DEEPRBF_VERSION_PATCH 1)
 set(DEEPRBF_VERSION "${DEEPRBF_VERSION_MAJOR}.${DEEPRBF_VERSION_MINOR}.${DEEPRBF_VERSION_PATCH}")
 
 # -----------------------------------------------------------------------------

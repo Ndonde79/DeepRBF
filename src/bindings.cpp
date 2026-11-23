@@ -277,6 +277,9 @@ PYBIND11_MODULE(deeprbf_recovered, m) {
              py::arg("eta") = 1.5, py::arg("leaf_size") = 64, py::arg("near_memory_mb") = 2048.0,
              "3.5.0: H-matrix/ACA product in the iterative solver: mode \"auto\" (n >= 4000), \"on\" or \"off\".")
         .def_static("hmatrix_mode", &NativeExactRBFImplicitModel::hmatrix_mode)
+        .def_static("set_preconditioner_form", &NativeExactRBFImplicitModel::set_preconditioner_form, py::arg("form"),
+                    "Two-level preconditioner form: \"auto\" (default, 3.5.1), \"symmetric\", \"hybrid\" or \"additive\" (3.5.0).")
+        .def_static("preconditioner_form", &NativeExactRBFImplicitModel::preconditioner_form)
         .def("weights",         &NativeExactRBFImplicitModel::weights,
              "Fitted coefficients: n kernel weights, then the drift coefficients (3.5.0).")
         .def("solver_backend",  &NativeExactRBFImplicitModel::solver_backend)

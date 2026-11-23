@@ -12,8 +12,8 @@ authors:
     given-names: Ramadhani W.
     affiliation: "DeepFusion Geoscience Limited, Dar es Salaam, Tanzania"
     orcid: "https://orcid.org/0009-0007-0675-9295"
-version: 3.5.0
-date-released: 2026-11-15
+version: 3.5.1
+date-released: 2026-11-23
 license: BSD-3-Clause
 repository-code: "https://github.com/Ndonde79/DeepRBF"
 keywords:

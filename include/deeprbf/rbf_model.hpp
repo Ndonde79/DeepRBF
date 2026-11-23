@@ -34,6 +34,11 @@ public:
     static void set_hmatrix(const std::string& mode, double tol = 1.0e-9, double eta = 1.5, int leaf_size = 64,
                             double near_memory_mb = 2048.0);
     static std::string hmatrix_mode();
+    // 3.5.1: two-level preconditioner form for iterative fits: "auto" (default: symmetric for cubic, Gaussian,
+    // multiquadric and inverse multiquadric, the 3.5.0 form otherwise), "symmetric", "hybrid" or "additive" (3.5.0:
+    // additive with the exact product, hybrid with the H-matrix).
+    static void set_preconditioner_form(const std::string& form);
+    static std::string preconditioner_form();
 
     NativeExactRBFImplicitModel();
     NativeExactRBFImplicitModel(const std::string& kernel, double epsilon, double regularization);
@@ -117,6 +122,7 @@ private:
     static std::string predict_backend_;
     static bool force_sparse_;
     static std::string hmatrix_mode_;
+    static std::string preconditioner_form_;
     static double hmatrix_tol_, hmatrix_eta_, hmatrix_near_mb_;
     static int hmatrix_leaf_;
 };
